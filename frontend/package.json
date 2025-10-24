@@ -1,0 +1,45 @@
+{
+  "name": "questions-resolved",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "run-p type-check \"build-only {@}\" --",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build",
+    "format": "prettier --write src/"
+  },
+  "dependencies": {
+    "pinia": "^3.0.3",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "^22.0.2",
+    "@types/node": "^22.18.11",
+    "@vicons/antd": "^0.13.0",
+    "@vicons/carbon": "^0.13.0",
+    "@vicons/fa": "^0.13.0",
+    "@vicons/fluent": "^0.13.0",
+    "@vicons/ionicons4": "^0.13.0",
+    "@vicons/ionicons5": "^0.13.0",
+    "@vicons/material": "^0.13.0",
+    "@vicons/tabler": "^0.13.0",
+    "@vicons/utils": "^0.1.4",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/tsconfig": "^0.8.1",
+    "naive-ui": "^2.43.1",
+    "npm-run-all2": "^8.0.4",
+    "prettier": "3.6.2",
+    "typescript": "~5.9.0",
+    "vfonts": "^0.0.3",
+    "vite": "^7.1.11",
+    "vite-plugin-vue-devtools": "^8.0.3",
+    "vue-tsc": "^3.1.1"
+  }
+}
