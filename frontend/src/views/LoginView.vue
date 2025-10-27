@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useUserStore } from '@/stores/userStore'
+import { useUserStore } from '@/stores/useUserStore'
 import type { FormInst, FormRules } from 'naive-ui'
 import { PersonOutline, LockClosedOutline } from '@vicons/ionicons5'
 
@@ -14,15 +14,15 @@ const loading = ref(false)
 
 // 表单数据
 const formData = reactive({
-    username: '',
+    email: '',
     password: '',
 })
 
 // 表单验证规则
 const rules: FormRules = {
-    username: [
-        { required: true, message: '请输入用户名或邮箱', trigger: ['blur', 'input'] },
-        { min: 3, message: '用户名至少3个字符', trigger: ['blur', 'input'] },
+    email: [
+        { required: true, message: '请输入邮箱', trigger: ['blur', 'input'] },
+        { type: 'email', message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
     ],
     password: [
         { required: true, message: '请输入密码', trigger: ['blur', 'input'] },
@@ -65,59 +65,49 @@ onMounted(() => {
 </script>
 
 <template>
-    <n-flex justify="center" class="h-screen w-screen bg-gray-50">
-        <n-flex vertical align="center" class="mt-10 h-1/2 w-2xl rounded-xl bg-white shadow-lg" :bordered="false">
-            <template #header>
-                <h2 class="mb-2 text-center text-2xl font-semibold text-gray-800">登录</h2>
-            </template>
-
-            <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleSubmit">
-                <n-form-item path="username" label="用户名" class="[&_.n-form-item-label]:font-medium">
-                    <n-input
-                        v-model:value="formData.username"
-                        placeholder="请输入用户名或邮箱"
-                        :input-props="{ autocomplete: 'username' }">
-                        <template #prefix>
-                            <n-icon :component="PersonOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-
-                <n-form-item path="password" label="密码" class="[&_.n-form-item-label]:font-medium">
-                    <n-input
-                        v-model:value="formData.password"
-                        type="password"
-                        placeholder="请输入密码"
-                        show-password-on="click"
-                        :input-props="{ autocomplete: 'current-password' }"
-                        @keydown.enter="handleSubmit">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-
-                <n-form-item>
-                    <n-button
-                        type="primary"
-                        size="large"
-                        :block="true"
-                        :loading="loading"
-                        @click="handleSubmit"
-                        attr-type="submit"
-                        class="w-full">
-                        {{ loading ? '登录中...' : '登录' }}
-                    </n-button>
-                </n-form-item>
-            </n-form>
-            <n-divider>或</n-divider>
-
-            <div class="mt-4">
-                <n-button tertiary type="primary" :block="true" @click="$router.push('/register')" class="w-full">
-                    注册新账户
-                </n-button>
-            </div>
+    <n-flex vertical class="mx-auto h-screen w-screen items-center bg-[#eefbff]">
+        <n-flex justify="center" class="h-[161px] w-full items-center">
+            <img src="@/assets/images/hrbeu-banner.png" class="h-[161px] w-[405px]" />
         </n-flex>
+        <div class="mt-10 flex h-[680px] w-full justify-center">
+            <img src="@/assets/images/hrbeu-bg.svg" class="h-[450px] w-[607px] bg-cover bg-center fill-[#eefbff]" />
+            <n-flex vertical justify="center" :bordered="false" class="h-[450px] w-[400px] rounded-xl p-4">
+                <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleSubmit">
+                    <n-form-item path="email" label="邮箱" class="[&_.n-form-item-label]:font-medium">
+                        <n-input v-model:value="formData.email" placeholder="请输入邮箱" :input-props="{ autocomplete: 'email' }">
+                            <template #prefix>
+                                <n-icon :component="PersonOutline" />
+                            </template>
+                        </n-input>
+                    </n-form-item>
+
+                    <n-form-item path="password" label="密码" class="[&_.n-form-item-label]:font-medium">
+                        <n-input
+                            v-model:value="formData.password"
+                            type="password"
+                            placeholder="请输入密码"
+                            show-password-on="click"
+                            :input-props="{ autocomplete: 'current-password' }"
+                            @keydown.enter="handleSubmit">
+                            <template #prefix>
+                                <n-icon :component="LockClosedOutline" />
+                            </template>
+                        </n-input>
+                    </n-form-item>
+
+                    <n-form-item>
+                        <n-button default size="large" :block="true" :loading="loading" @click="handleSubmit" attr-type="submit" class="w-full">
+                            {{ loading ? '登录中...' : '登录' }}
+                        </n-button>
+                    </n-form-item>
+                </n-form>
+                <n-divider>或</n-divider>
+
+                <div class="mt-4">
+                    <n-button tertiary type="primary" :block="true" @click="$router.push('/register')" class="w-full">注册新账户</n-button>
+                </div>
+            </n-flex>
+        </div>
     </n-flex>
 </template>
 

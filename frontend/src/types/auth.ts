@@ -1,30 +1,18 @@
+import type { UserInfo } from '@/types'
+import type { Response } from '@/types'
 // 登录表单数据类型
 export interface LoginForm {
-  username: string
-  password: string
+    email: string
+    password: string
+    remember?: boolean
 }
 
 // 登录接口响应数据类型
-export interface LoginResponse {
-  code: number
-  message: string
-  data: {
-    token: string
-    userInfo: {
-      id: number
-      username: string
-      email: string
-      role: 'student' | 'teacher' | 'admin'
-      avatar?: string
-    }
-  }
-}
+export interface LoginResponse extends Response<{ userInfo: UserInfo }> {}
 
-// 用户信息类型
-export interface UserInfo {
-  id: number
-  username: string
-  email: string
-  role: 'student' | 'teacher' | 'admin'
-  avatar?: string
+export interface RegisterForm {
+    email: string
+    password: string
+    confirmPassword: string
 }
+export interface RegisterResponse extends Response<{ userInfo: UserInfo }> {}
