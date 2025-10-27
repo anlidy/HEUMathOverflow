@@ -1,0 +1,15 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"   # MinIO API
+      - "9001:9001"   # 控制台 Web UI
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}        # 自定义用户名
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}  # 自定义密码
+    volumes:
+      - ./minio/data:/data            # 数据挂载
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+

@@ -1,0 +1,23 @@
+server:
+  domain: math-overflow.edu
+  port: 8081
+
+postgres:
+  host: localhost
+  port: 5432
+  user: forum_user
+  password: forum_pass
+  dbname: user_db
+  sslmode: disable
+
+minio:
+  endpoint: localhost:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket: user
+  use_ssl: false
+
+redis:
+addr: localhost:6379
+password: 
+db: 0

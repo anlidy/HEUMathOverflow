@@ -1,0 +1,11 @@
+server:
+  port: 8083
+
+postgres:
+  host: localhost
+  port: 5432
+  user: forum_user
+  password: forum_pass
+  dbname: audit_db
+  sslmode: disable
+
