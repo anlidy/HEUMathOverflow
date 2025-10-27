@@ -22,10 +22,10 @@ type MongoConfig struct {
 
 type MinioConfig struct {
 	Endpoint  string
-	AccessKey string
-	SecretKey string
+	AccessKey string `mapstructure:"access_key"`
+	SecretKey string `mapstructure:"secret_key"`
 	Bucket    string
-	UseSSL    bool
+	UseSSL    bool `mapstructure:"use_ssl"`
 }
 
 type RedisConfig struct {

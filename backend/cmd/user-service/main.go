@@ -13,8 +13,10 @@ import (
 )
 
 func main() {
+	// dir, _ := os.Getwd()
+	// fmt.Println("当前工作目录:", dir)
 	// 加载配置
-	cfg, err := config.LoadConfig("config/user-service.yaml")
+	cfg, err := config.LoadConfig("internal/common/config/user.yaml")
 	if err != nil {
 		panic(err)
 	}
@@ -26,13 +28,16 @@ func main() {
 	if err := pg.AutoMigrate(&model.User{}); err != nil {
 		panic(err)
 	}
-	// 初始化minio数据库
-	minio, err := db.InitMinIO(cfg.Minio)
+
+	// 初始化redis数据库
+	rdb, err := db.InitRedis(cfg.Redis)
 	if err != nil {
 		panic(err)
 	}
-	// 初始化redis数据库
-	rdb, err := db.InitRedis(cfg.Redis)
+
+	// 初始化minio数据库
+	fmt.Println(cfg.Minio)
+	minio, err := db.InitMinIO(cfg.Minio)
 	if err != nil {
 		panic(err)
 	}

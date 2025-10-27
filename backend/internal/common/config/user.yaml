@@ -5,8 +5,8 @@ server:
 postgres:
   host: localhost
   port: 5432
-  user: forum_user
-  password: forum_pass
+  user: postgres
+  password: postgres
   dbname: user_db
   sslmode: disable
 
