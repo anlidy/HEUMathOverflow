@@ -2,7 +2,7 @@ server:
   port: 8083
 
 postgres:
-  host: localhost
+  host: postgres
   port: 5432
   user: forum_user
   password: forum_pass

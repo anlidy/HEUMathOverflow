@@ -1,0 +1,3 @@
+docker/Postgre/data
+docker/Minio/data
+docker/Redis/data

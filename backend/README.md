@@ -27,3 +27,33 @@
 - `/repository` 数据层, 封装了数据库操作逻辑, 对service层暴露接口
 - `/router` 路由层, 负责定义服务的请求路径和处理函数, 调用中间件
 - `model` 数据模型, 包括用户表结构, 请求/响应体结构等 
+
+````
+
+## Docker 部署
+
+本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了一个示例 `docker-compose.yml`，用于本地一键启动 Postgres、Redis、MinIO 以及三个服务。
+
+快速开始（在 `backend` 目录下执行）：
+
+```bash
+# 复制示例环境变量文件并按需修改
+cp docker/.env.example docker/.env
+
+# 在 docker 目录下启动（compose 文件位于 docker/docker-compose.yml）
+cd docker
+docker compose up --build -d
+```
+
+服务端口（默认）：
+- user-service: 8081
+- forum-service: 8082
+- audit-service: 8083
+
+注意：源码中的配置文件已调整为在容器网络中使用服务名（如 `postgres`, `minio`, `redis`）作为 host；如果你需要在宿主机上运行服务并连接宿主机上的数据库，请把 `internal/common/config/*.yaml` 中的 host 改回 `localhost` 或使用适当的环境配置/挂载覆盖。
+
+清理：
+
+```bash
+docker compose down -v
+```

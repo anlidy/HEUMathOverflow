@@ -1,0 +1,70 @@
+version: "3.8"
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-user_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./Postgre/data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./Redis/data:/data
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./Minio/data:/data
+
+  user-service:
+    build:
+      context: ..
+      dockerfile: cmd/user-service/Dockerfile
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    environment:
+      # App reads internal/common/config/user.yaml by default; config file already points to container hostnames.
+      GIN_MODE: release
+    ports:
+      - "8081:8081"
+
+  forum-service:
+    build:
+      context: ..
+      dockerfile: cmd/forum-service/Dockerfile
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8082:8082"
+
+  audit-service:
+    build:
+      context: ..
+      dockerfile: cmd/audit-service/Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8083:8083"

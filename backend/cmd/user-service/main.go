@@ -10,13 +10,15 @@ import (
 	"MathOverflow/internal/user-service/service"
 	"fmt"
 	"log"
+	"os"
 )
 
 func main() {
-	// dir, _ := os.Getwd()
-	// fmt.Println("当前工作目录:", dir)
+	dir, _ := os.Getwd()
+	fmt.Println("当前工作目录:", dir)
 	// 加载配置
-	cfg, err := config.LoadConfig("internal/common/config/user.yaml")
+
+	cfg, err := config.LoadConfig("user.yaml")
 	if err != nil {
 		panic(err)
 	}
