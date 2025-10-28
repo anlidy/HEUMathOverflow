@@ -33,17 +33,13 @@ const rules: FormRules = {
 // 处理登录提交
 const handleSubmit = async (e: Event) => {
     e.preventDefault()
-
     try {
         // 表单验证
         await formRef.value?.validate()
-
         // 设置加载状态
         loading.value = true
-
         // 调用登录动作
         const success = await userStore.login(formData)
-
         if (success) {
             // 登录成功后的处理在 userStore 中已完成
             console.log('登录成功')
@@ -55,24 +51,17 @@ const handleSubmit = async (e: Event) => {
         loading.value = false
     }
 }
-
-// 页面加载时检查是否已登录
-onMounted(() => {
-    if (userStore.isLoggedIn()) {
-        router.push('/')
-    }
-})
 </script>
 
 <template>
-    <n-flex vertical class="mx-auto h-screen w-screen items-center bg-[#eefbff]">
+    <n-flex vertical class="mx-auto h-screen w-screen items-center bg-cyan-40">
         <n-flex justify="center" class="h-[161px] w-full items-center">
             <img src="@/assets/images/hrbeu-banner.png" class="h-[161px] w-[405px]" />
         </n-flex>
         <div class="mt-10 flex h-[680px] w-full justify-center">
-            <img src="@/assets/images/hrbeu-bg.svg" class="h-[450px] w-[607px] bg-cover bg-center fill-[#eefbff]" />
-            <n-flex vertical justify="center" :bordered="false" class="h-[450px] w-[400px] rounded-xl p-4">
-                <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleSubmit">
+            <n-flex vertical justify="center" class="h-[500px] w-[400px] rounded-xl border border-gray-200 p-4 shadow-lg">
+                <div class="text-center text-2xl font-bold">登录</div>
+                <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleSubmit" class="mt-4">
                     <n-form-item path="email" label="邮箱" class="[&_.n-form-item-label]:font-medium">
                         <n-input v-model:value="formData.email" placeholder="请输入邮箱" :input-props="{ autocomplete: 'email' }">
                             <template #prefix>
