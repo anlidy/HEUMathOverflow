@@ -1,6 +1,31 @@
 {
-  "$schema": "https://json.schemastore.org/prettierrc",
-  "semi": false,
-  "singleQuote": true,
-  "printWidth": 100
+    "tabWidth": 4,
+    "$schema": "https://json.schemastore.org/prettierrc",
+    "semi": false,
+    "singleQuote": true,
+    "singleAttributePerLine": false,
+    "printWidth": 150,
+    "plugins": ["prettier-plugin-tailwindcss"],
+    "tailwindStylesheet": "./src/assets/styles/main.css",
+    "bracketSameLine": true,
+    "htmlWhitespaceSensitivity": "ignore",
+    "overrides": [
+        {
+            "files": "*.vue",
+            "options": {
+                "parser": "vue",
+                "singleAttributePerLine": false,
+                "bracketSameLine": true,
+                "printWidth": 150
+            }
+        },
+        {
+            "files": "*.html",
+            "options": {
+                "parser": "html",
+                "singleAttributePerLine": false,
+                "bracketSameLine": true
+            }
+        }
+    ]
 }
