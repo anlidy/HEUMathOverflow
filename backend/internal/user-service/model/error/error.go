@@ -7,6 +7,8 @@ const (
 	NoError Error = iota
 	EmailError
 	PasswordError
+	EmailExistsError
+	NameExistsError
 	NotFoundError
 	InternalError
 	DuplicateError

@@ -10,6 +10,7 @@ type UserRepo interface {
 	CreateUser(user *model.User) error
 	FindUserByID(userID int64) (model.User, error)
 	FindUserByEmail(email string) (model.User, error)
+	FindUserByUsername(username string) (model.User, error)
 	UpdateColumn(userID int64, column string, value any) (bool, error)
 	UpdateUser(user *model.User) (bool, error)
 	DeleteUser(userID int64) (bool, error)
@@ -32,7 +33,7 @@ func (r *userRepo) CreateUser(user *model.User) error {
 // 根据用户id查询User
 func (r *userRepo) FindUserByID(userID int64) (model.User, error) {
 	var result model.User
-	err := r.pg.Where("user_id = ?", userID).First(&result).Error
+	err := r.pg.Where("id = ?", userID).First(&result).Error
 	return result, err
 }
 
@@ -43,9 +44,16 @@ func (r *userRepo) FindUserByEmail(email string) (model.User, error) {
 	return result, err
 }
 
+// 根据用户username查询User
+func (r *userRepo) FindUserByUsername(username string) (model.User, error) {
+	var result model.User
+	err := r.pg.Where("username = ?", username).First(&result).Error
+	return result, err
+}
+
 // 更新一列
 func (r *userRepo) UpdateColumn(userID int64, column string, value any) (bool, error) {
-	result := r.pg.Model(&model.User{}).Where("user_id = ?", userID).Update(column, value)
+	result := r.pg.Model(&model.User{}).Where("id = ?", userID).Update(column, value)
 	if result.Error != nil {
 		return false, result.Error
 	}
@@ -65,7 +73,7 @@ func (r *userRepo) UpdateUser(user *model.User) (bool, error) {
 
 // 删除一个用户
 func (r *userRepo) DeleteUser(userID int64) (bool, error) {
-	err := r.pg.Where("user_id = ?", userID).Delete(&model.User{}).Error
+	err := r.pg.Where("id = ?", userID).Delete(&model.User{}).Error
 	if err != nil {
 		return false, err
 	}

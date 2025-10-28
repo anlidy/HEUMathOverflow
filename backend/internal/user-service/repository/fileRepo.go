@@ -29,7 +29,7 @@ func (r *fileRepo) UploadFile(ctx context.Context, bucket string, file model.Fil
 	if err != nil {
 		return "", err
 	}
-	url := fmt.Sprintf("api/v1/%s/%s", bucket, file.Filename) // /api/v1/user/avatar/20251027.jpg
+	url := fmt.Sprintf("/api/v1/%s/avatar/%s", bucket, file.Filename) // /api/v1/user/avatar/20251027.jpg
 	return url, nil
 }
 

@@ -24,6 +24,7 @@ func IsValidImage(filename string) bool {
 }
 
 // 验证密码哈希是否相同
-func ValidatePassword(hashedPassword, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+func ValidatePassword(hashedPassword, password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	return err == nil
 }

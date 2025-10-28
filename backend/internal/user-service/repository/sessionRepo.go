@@ -12,7 +12,7 @@ import (
 
 type SessionRepo interface {
 	GetSession(ctx context.Context, sessionID string) (model.Session, error)
-	SetSession(ctx context.Context, sessionID string, session model.Session, ttl time.Duration) error
+	SetSession(ctx context.Context, session model.Session) error
 	ResetTTL(ctx context.Context, sessionID string, ttl time.Duration) error
 	DeleteSession(ctx context.Context, sessionID string) error
 }
@@ -53,16 +53,16 @@ func (s *sessionRepo) GetSession(ctx context.Context, sessionID string) (model.S
 	}, nil
 }
 
-func (s *sessionRepo) SetSession(ctx context.Context, sessionID string, session model.Session, ttl time.Duration) error {
-	key := "session:" + sessionID
+func (s *sessionRepo) SetSession(ctx context.Context, session model.Session) error {
+	key := "session:" + session.SessionID
 
 	pipe := s.rdb.TxPipeline()
 	pipe.HSet(ctx, key, map[string]interface{}{
 		"userID":   session.UserID,
-		"role":     session.Role,
+		"role":     int(session.Role),
 		"remember": session.Remember,
 	})
-	pipe.Expire(ctx, key, ttl)
+	pipe.Expire(ctx, key, session.TTL)
 
 	_, err := pipe.Exec(ctx)
 	return err

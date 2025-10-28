@@ -18,8 +18,8 @@ import (
 
 // 用户服务接口
 type UserService interface {
-	UserRegister(ctx context.Context, req request.UserRegister) (response.UserInfo, syserror.Error)
-	UserLogin(ctx context.Context, req request.UserLogin) (response.UserInfo, syserror.Error)
+	UserRegister(ctx context.Context, req request.UserRegister) (model.Session, response.UserInfo, syserror.Error)
+	UserLogin(ctx context.Context, req request.UserLogin) (model.Session, response.UserInfo, syserror.Error)
 	UserUploadAvatar(ctx context.Context, userID int64, file model.File) (string, syserror.Error)
 	UserDownloadAvatar(ctx context.Context, filename string) (*model.File, syserror.Error)
 }
@@ -38,49 +38,57 @@ func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo
 }
 
 // 用户注册
-func (s *userService) UserRegister(ctx context.Context, req request.UserRegister) (response.UserInfo, syserror.Error) {
+func (s *userService) UserRegister(ctx context.Context, req request.UserRegister) (model.Session, response.UserInfo, syserror.Error) {
 	// 校验用户邮箱格式
 	if !utils.IsValidEmail(req.Email) {
-		return response.UserInfo{}, syserror.EmailError
-	}
-	// user结构体
-	var user = model.User{
-		ID:    utils.GenerateSnowflakeID(), // 生成userID
-		Email: req.Email,
-		Role:  model.Student,
+		return model.Session{}, response.UserInfo{}, syserror.EmailError
 	}
 	// 密码哈希加密
 	passwordHash, err := utils.HashPassword(req.Password)
 	if err != nil {
 		log.Printf("[%s] %v", s.serviceName, err)
-		return response.UserInfo{}, syserror.InternalError
+		return model.Session{}, response.UserInfo{}, syserror.InternalError
 	}
-	user.PasswordHash = passwordHash
-	user.LastLogin = time.Now()
+
+	// user结构体
+	var user = model.User{
+		ID:           utils.GenerateSnowflakeID(), // 生成userID
+		Email:        req.Email,
+		Username:     req.Username,
+		Role:         model.Student,
+		PasswordHash: passwordHash,
+		LastLogin:    time.Now(),
+	}
 
 	// 查询用户是否已经存在
 	_, err = s.userRepo.FindUserByEmail(user.Email)
 	if err == nil {
-		return response.UserInfo{}, syserror.DuplicateError
+		return model.Session{}, response.UserInfo{}, syserror.EmailExistsError
+	}
+	_, err = s.userRepo.FindUserByUsername(user.Username)
+	if err == nil {
+		return model.Session{}, response.UserInfo{}, syserror.NameExistsError
 	}
 	// 将新用户存入数据库
 	err = s.userRepo.CreateUser(&user)
 	if err != nil {
 		log.Printf("[%s] %v", s.serviceName, err)
-		return response.UserInfo{}, syserror.InternalError
+		return model.Session{}, response.UserInfo{}, syserror.InternalError
 	}
 
 	// 将sessionID -> Session 存入redis
 	var sessionID = utils.GenerateUUID()
 	var session = model.Session{
-		UserID:   user.ID,
-		Role:     user.Role,
-		Remember: false,
+		SessionID: sessionID,
+		UserID:    user.ID,
+		Role:      user.Role,
+		Remember:  false,
+		TTL:       time.Hour * 24,
 	}
-	err = s.sessionRepo.SetSession(ctx, sessionID, session, time.Hour*24) // 默认有效期为1天
+	err = s.sessionRepo.SetSession(ctx, session) // 默认有效期为1天
 	if err != nil {
 		log.Printf("[%s] %v", s.serviceName, err)
-		return response.UserInfo{}, syserror.InternalError
+		return model.Session{}, response.UserInfo{}, syserror.InternalError
 	}
 
 	// 返回用户基本信息
@@ -90,53 +98,48 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 		Email:    user.Email,
 		Role:     model.GetRoleName(user.Role),
 	}
-	return info, syserror.NoError
+	return session, info, syserror.NoError
 }
 
 // 用户登录
-func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (response.UserInfo, syserror.Error) {
+func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (model.Session, response.UserInfo, syserror.Error) {
 	// 校验用户邮箱格式
 	if !utils.IsValidEmail(req.Email) {
-		return response.UserInfo{}, syserror.EmailError
-	}
-	// 密码哈希加密
-	passwordHash, err := utils.HashPassword(req.Password)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.serviceName, err)
-		return response.UserInfo{}, syserror.InternalError
+		return model.Session{}, response.UserInfo{}, syserror.EmailError
 	}
 	// 查询邮箱所属用户
-	var user model.User
-	user, err = s.userRepo.FindUserByEmail(req.Email)
+	user, err := s.userRepo.FindUserByEmail(req.Email)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return response.UserInfo{}, syserror.NotFoundError
+			return model.Session{}, response.UserInfo{}, syserror.NotFoundError
 		}
 		log.Printf("[%s] %v\n", s.serviceName, err)
-		return response.UserInfo{}, syserror.InternalError
+		return model.Session{}, response.UserInfo{}, syserror.InternalError
 	}
 	// 校验密码是否正确
-	if passwordHash != user.PasswordHash {
-		return response.UserInfo{}, syserror.PasswordError
+	if !utils.ValidatePassword(user.PasswordHash, req.Password) {
+		return model.Session{}, response.UserInfo{}, syserror.PasswordError
 	}
 
 	// 将sessionID -> Session 存入redis
 	var sessionID = utils.GenerateUUID()
-	var session = model.Session{
-		UserID:   user.ID,
-		Role:     user.Role,
-		Remember: req.Remember,
-	}
 	var ttl time.Duration
 	if req.Remember {
 		ttl = time.Hour * 24 * 30 // 保存30天
 	} else {
 		ttl = time.Hour * 24 //保存1天
 	}
-	err = s.sessionRepo.SetSession(ctx, sessionID, session, ttl)
+	var session = model.Session{
+		SessionID: sessionID,
+		UserID:    user.ID,
+		Role:      user.Role,
+		Remember:  req.Remember,
+		TTL:       ttl,
+	}
+	err = s.sessionRepo.SetSession(ctx, session)
 	if err != nil {
 		log.Printf("[%s] %v\n", s.serviceName, err)
-		return response.UserInfo{}, syserror.InternalError
+		return model.Session{}, response.UserInfo{}, syserror.InternalError
 	}
 
 	var info = response.UserInfo{
@@ -146,7 +149,7 @@ func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (res
 		Role:      model.GetRoleName(user.Role),
 		AvatarUrl: user.AvatarUrl,
 	}
-	return info, syserror.NoError
+	return session, info, syserror.NoError
 }
 
 // 上传用户头像
@@ -226,8 +229,7 @@ func (s *userService) UserUpdatePassword(ctx context.Context, userID int64, req 
 	}
 
 	// 校验密码哈希是否相同
-	err = utils.ValidatePassword(user.PasswordHash, req.OldPassword)
-	if err != nil {
+	if !utils.ValidatePassword(user.PasswordHash, req.OldPassword) {
 		return syserror.PasswordError
 	}
 
