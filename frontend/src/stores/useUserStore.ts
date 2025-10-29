@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useMessage } from 'naive-ui'
-import type { LoginForm, LoginResponse, UserInfo, Response } from '@/types'
+import type { LoginForm, LoginResponse, RegisterForm, RegisterResponse, UserInfo, Response } from '@/types'
 import { api } from '@/services'
 import { useRouter } from 'vue-router'
 
@@ -18,7 +18,7 @@ export const useUserStore = defineStore('user', () => {
 
             if (response.code === 200) {
                 // 保存用户信息
-                userInfo.value = response.data.userInfo
+                userInfo.value = response.data.user_info
 
                 // 保存到 localStorage
                 localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
@@ -35,6 +35,40 @@ export const useUserStore = defineStore('user', () => {
             }
         } catch (error: any) {
             message?.error(error.message || '登录请求失败')
+            return false
+        }
+    }
+
+    // 注册操作
+    const register = async (formData: RegisterForm) => {
+        try {
+            // 验证密码确认
+            if (formData.password !== formData.confirmPassword) {
+                message?.error('两次输入的密码不一致')
+                return false
+            }
+
+            const response: RegisterResponse = await api.auth.register(formData)
+
+            if (response.code === 200) {
+                // 保存用户信息
+                userInfo.value = response.data.user_info
+
+                // 保存到 localStorage
+                localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
+
+                // 显示成功消息
+                message?.success('注册成功！')
+
+                // 跳转到首页
+                router.push('/')
+                return true
+            } else {
+                message?.error(response.message || '注册失败')
+                return false
+            }
+        } catch (error: any) {
+            message?.error(error.message || '注册请求失败')
             return false
         }
     }
@@ -68,6 +102,7 @@ export const useUserStore = defineStore('user', () => {
     return {
         userInfo,
         login,
+        register,
         logout,
         initUser,
         isLoggedIn,

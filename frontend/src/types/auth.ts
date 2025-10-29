@@ -8,11 +8,20 @@ export interface LoginForm {
 }
 
 // 登录接口响应数据类型
-export interface LoginResponse extends Response<{ userInfo: UserInfo }> {}
+export interface LoginResponse extends Response<{ user_info: UserInfo }> {}
 
 export interface RegisterForm {
+    username: string
     email: string
     password: string
     confirmPassword: string
 }
-export interface RegisterResponse extends Response<{ userInfo: UserInfo }> {}
+
+// 注册请求类型（只包含需要发送给后端的字段）
+export interface RegisterRequest {
+    username: string
+    email: string
+    password: string
+}
+
+export interface RegisterResponse extends Response<{ user_info: UserInfo }> {}
