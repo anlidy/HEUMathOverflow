@@ -18,7 +18,7 @@ export const useUserStore = defineStore('user', () => {
 
             if (response.code === 200) {
                 // 保存用户信息
-                userInfo.value = response.data.userInfo
+                userInfo.value = response.data.user_info
 
                 // 保存到 localStorage
                 localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
@@ -52,7 +52,7 @@ export const useUserStore = defineStore('user', () => {
 
             if (response.code === 200) {
                 // 保存用户信息
-                userInfo.value = response.data.userInfo
+                userInfo.value = response.data.user_info
 
                 // 保存到 localStorage
                 localStorage.setItem('userInfo', JSON.stringify(userInfo.value))

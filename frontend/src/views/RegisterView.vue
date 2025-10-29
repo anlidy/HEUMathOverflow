@@ -32,11 +32,11 @@ const validatePasswordSame = (_rule: any, value: string) => {
 const rules: FormRules = {
     username: [
         { required: true, message: '请输入用户名', trigger: ['blur', 'input'] },
-        { min: 3, max: 20, message: '用户名长度应在3-20个字符之间', trigger: ['blur', 'input'] },
+        { min: 3, max: 50, message: '用户名长度应在3-50个字符之间', trigger: ['blur', 'input'] },
     ],
     email: [
         { required: true, message: '请输入邮箱', trigger: ['blur', 'input'] },
-        { type: 'email', message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
+        { type: 'email', max: 100, message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
     ],
     password: [
         { required: true, message: '请输入密码', trigger: ['blur', 'input'] },

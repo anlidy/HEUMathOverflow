@@ -8,7 +8,7 @@ export interface LoginForm {
 }
 
 // 登录接口响应数据类型
-export interface LoginResponse extends Response<{ userInfo: UserInfo }> {}
+export interface LoginResponse extends Response<{ user_info: UserInfo }> {}
 
 export interface RegisterForm {
     username: string
@@ -24,4 +24,4 @@ export interface RegisterRequest {
     password: string
 }
 
-export interface RegisterResponse extends Response<{ userInfo: UserInfo }> {}
+export interface RegisterResponse extends Response<{ user_info: UserInfo }> {}
