@@ -6,8 +6,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
+    # ports:
+      # - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || exit 1"]
       interval: 5s
@@ -15,14 +15,14 @@ services:
       retries: 5
       start_period: 5s
     volumes:
-      - ./Postgre/data:/var/lib/postgresql/data
+      - ./data/Postgre:/var/lib/postgresql/data
       - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql # 初始化创建数据库
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports:
-      - "6379:6379"
+    # ports:
+      # - "6379:6379"
     volumes:
       - ./data/Redis:/data
 
@@ -33,10 +33,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - "9000:9000"
+      # - "9000:9000"
       - "9001:9001"
     volumes:
-      - ./Minio/data:/data
+      - ./data/Minio:/data
   
   mongodb:
     image: mongo:8.0
@@ -47,60 +47,10 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - ./Mongo/data:/data/db
-      - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js # 初始化创建数据库
+      - ./data/Mongo:/data/db
+      - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
 
-  # 用户服务
-  user-service:
-    build:
-      context: ..
-      dockerfile: Dockerfile.service
-      args:
-        SERVICE_DIR: cmd/user-service
-        CONFIG_PATH: cmd/user-service/user.yaml
-        EXPOSE_PORT: 8081
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      minio:
-        condition: service_started
-    environment:
-      # App reads internal/common/config/user.yaml by default; config file already points to container hostnames.
-      GIN_MODE: release
-    ports:
-      - "8081:8081"
-  
-  # 论坛服务
-  forum-service:
-    build:
-      context: ..
-      dockerfile: Dockerfile.service
-      args:
-        SERVICE_DIR: cmd/forum-service
-        CONFIG_PATH: cmd/forum-service/forum.yaml
-        EXPOSE_PORT: 8082
-    depends_on:
-      - postgres
-      - minio
-    environment:
-      GIN_MODE: release
-    ports:
-      - "8082:8082"
-
-  # 审核模块
-  audit-service:
-    build:
-      context: ..
-      dockerfile: Dockerfile.service
-      args:
-        SERVICE_DIR: cmd/audit-service
-        CONFIG_PATH: cmd/audit-service/audit.yaml
-        EXPOSE_PORT: 8083
-    depends_on:
-      - postgres
-    environment:
-      GIN_MODE: release
-    ports:
-      - "8083:8083"
+networks:
+  default:
+    name: backend_default
+    driver: bridge
