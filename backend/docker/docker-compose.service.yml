@@ -8,13 +8,6 @@ services:
         SERVICE_DIR: cmd/user-service
         CONFIG_PATH: cmd/user-service/user.yaml
         EXPOSE_PORT: 8081
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      minio:
-        condition: service_started
     environment:
       # App reads internal/common/config/user.yaml by default; config file already points to container hostnames.
       GIN_MODE: release
@@ -30,9 +23,6 @@ services:
         SERVICE_DIR: cmd/forum-service
         CONFIG_PATH: cmd/forum-service/forum.yaml
         EXPOSE_PORT: 8082
-    depends_on:
-      - postgres
-      - minio
     environment:
       GIN_MODE: release
     ports:
@@ -47,8 +37,6 @@ services:
         SERVICE_DIR: cmd/audit-service
         CONFIG_PATH: cmd/audit-service/audit.yaml
         EXPOSE_PORT: 8083
-    depends_on:
-      - postgres
     environment:
       GIN_MODE: release
     ports:

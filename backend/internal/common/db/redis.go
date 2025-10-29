@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// InitRedis 初始化 Redis，保证只执行一次
+// InitRedis 初始化 Redis
 func InitRedis(cfg config.RedisConfig) (*redis.Client, error) {
 	ctx := context.Background()
 	rdb := redis.NewClient(&redis.Options{
