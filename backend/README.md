@@ -42,7 +42,13 @@ cp docker/.env.example docker/.env
 
 # 在 docker 目录下启动（compose 文件位于 docker/docker-compose.yml）
 cd docker
+# 先启动数据库容器
 docker compose up --build -d
+# 再启动服务
+docker compose -f docker-compose.service.yml up --build -d
+
+# 查看docker容器运行状态
+docker ps
 ```
 
 服务端口（默认）：
@@ -50,10 +56,11 @@ docker compose up --build -d
 - forum-service: 8082
 - audit-service: 8083
 
-注意：源码中的配置文件已调整为在容器网络中使用服务名（如 `postgres`, `minio`, `redis`）作为 host；如果你需要在宿主机上运行服务并连接宿主机上的数据库，请把 `internal/common/config/*.yaml` 中的 host 改回 `localhost` 或使用适当的环境配置/挂载覆盖。
+注意：源码中的配置文件已调整为在容器网络中使用服务名（如 `postgres`, `minio`, `redis`）作为 host；如果你需要在宿主机上运行服务并连接宿主机上的数据库，请把 `/cmd/**/*.yaml` 中的 host 改回 `localhost` 或使用适当的环境配置/挂载覆盖。
 
 停止容器并清理：
 
 ```bash
-docker compose down -v
+# 停止服务容器
+docker compose -f docker-compose.service.yml -f docker-compose.yml down
 ```
