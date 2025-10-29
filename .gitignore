@@ -1,3 +1,4 @@
 /backend/**/.env
 /backend/docker/Minio/minio/**
 /backend/docker/**/data/**
+datareset.sh
