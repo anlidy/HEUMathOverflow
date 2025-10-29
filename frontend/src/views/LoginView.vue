@@ -23,11 +23,11 @@ const formData = reactive({
 const rules: FormRules = {
     email: [
         { required: true, message: '请输入邮箱', trigger: ['blur', 'input'] },
-        { type: 'email', message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
+        { type: 'email', max: 100, message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
     ],
     password: [
         { required: true, message: '请输入密码', trigger: ['blur', 'input'] },
-        { min: 6, message: '密码至少6个字符', trigger: ['blur', 'input'] },
+        { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: ['blur', 'input'] },
     ],
 }
 
