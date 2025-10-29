@@ -9,10 +9,11 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || exit 1"]
       interval: 5s
-      timeout: 3s
+      timeout: 5s
       retries: 5
+      start_period: 5s
     volumes:
       - ./Postgre/data:/var/lib/postgresql/data
       - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql # 初始化创建数据库
@@ -23,7 +24,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ./Redis/data:/data
+      - ./data/Redis:/data
 
   minio:
     image: minio/minio:RELEASE.2025-07-23T15-54-02Z
@@ -53,7 +54,11 @@ services:
   user-service:
     build:
       context: ..
-      dockerfile: cmd/user-service/Dockerfile
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_DIR: cmd/user-service
+        CONFIG_PATH: cmd/user-service/user.yaml
+        EXPOSE_PORT: 8081
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,7 +76,11 @@ services:
   forum-service:
     build:
       context: ..
-      dockerfile: cmd/forum-service/Dockerfile
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_DIR: cmd/forum-service
+        CONFIG_PATH: cmd/forum-service/forum.yaml
+        EXPOSE_PORT: 8082
     depends_on:
       - postgres
       - minio
@@ -84,7 +93,11 @@ services:
   audit-service:
     build:
       context: ..
-      dockerfile: cmd/audit-service/Dockerfile
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_DIR: cmd/audit-service
+        CONFIG_PATH: cmd/audit-service/audit.yaml
+        EXPOSE_PORT: 8083
     depends_on:
       - postgres
     environment:

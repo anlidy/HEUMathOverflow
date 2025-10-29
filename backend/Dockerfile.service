@@ -1,0 +1,33 @@
+# Parameterized Dockerfile for building any service in this repo.
+# Usage (example):
+# DOCKER_BUILDKIT=1 docker build \
+#   --build-arg SERVICE_DIR=cmd/forum-service \
+#   --build-arg BINARY_NAME=forum-service \
+#   --build-arg CONFIG_PATH=cmd/forum-service/forum.yaml \
+#   --build-arg EXPOSE_PORT=8082 \
+#   -f Dockerfile.service -t forum-service:latest .
+
+FROM golang:1.23.5-alpine AS builder
+ARG SERVICE_DIR
+ARG BINARY_NAME
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+WORKDIR /src/${SERVICE_DIR}
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /usr/local/bin/service
+
+FROM alpine:3.18
+ARG BINARY_NAME
+ARG CONFIG_PATH
+ARG EXPOSE_PORT
+RUN apk add --no-cache ca-certificates coreutils bash
+COPY --from=builder /usr/local/bin/service /usr/local/bin/service
+WORKDIR /app
+# copy config if provided (buildkit required for ARG in COPY on older docker)
+RUN if [ -n "${CONFIG_PATH}" ]; then true; fi
+COPY ${CONFIG_PATH} /app/
+EXPOSE ${EXPOSE_PORT}
+ENV GIN_MODE=release
+ENTRYPOINT ["/usr/local/bin/service"]
+# CMD ["tail", "-f", "/dev/null"]
