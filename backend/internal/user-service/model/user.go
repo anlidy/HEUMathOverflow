@@ -27,6 +27,15 @@ func GetRoleName(role Role) string {
 	}
 }
 
+func ValidateRole(role Role) bool {
+	return role >= Student && role <= Admin
+
+}
+
+func IsAllowedRole(allowRole Role, curRole Role) bool {
+	return curRole >= allowRole
+}
+
 // User 表示用户信息
 type User struct {
 	ID           int64     `gorm:"primaryKey;autoIncrement:false" json:"id"`

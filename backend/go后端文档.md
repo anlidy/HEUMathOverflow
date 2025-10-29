@@ -19,10 +19,10 @@
 
 #####  `sessions`表：存储登录的会话记录
 
-**已迁移到Redis数据库**, 采用sessionID -> {userID, role}键值对映射, 并根据以下情况设置过期时间:
+**已迁移到Redis数据库**, 采用sessionID -> {userID, roleKey,remember}和roleKey->role键值映射, 并根据以下情况设置过期时间:
 
--  前端Remember为true, 设置30天过期, 每当用户活动则延长;
--  前端Remember为false 或 新用户注册, 设置1天过期, 每当用户活动则重置为1天.
+-  前端remember为true, 设置30天过期, 每当用户活动则延长;
+-  前端remember为false 或 新用户注册, 设置1天过期, 每当用户活动则重置为1天.
 
 ##### 1.2. forum_db库: 帖子与回复索引
 

@@ -26,9 +26,9 @@ Response:
   "message":string,
   "data": {
     "user_info": {
-      "id": int,
+      "id": string,
       "username": string,
-      "role": string,
+      "role": string,   // "1" -> 学生, "2" -> "助教", "3" -> "教师", "4" ->"管理员"
       "avatar_url":string 
     }
   }
@@ -59,7 +59,7 @@ Response:
   "message": string,
   "data": {
     "user_info": {
-      "id": int,
+      "id": string,
       "username": string,
       "role": string,  // 默认角色为学生
       "avatar_url":string // 默认为空,前端可以显示一个默认头像

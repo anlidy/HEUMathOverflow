@@ -57,14 +57,14 @@ func (uc *UserController) UserRegister(c *gin.Context) {
 
 // 用户登录
 func (uc *UserController) UserLogin(c *gin.Context) {
-	var req request.UserLogin
 	var ctx = c.Request.Context()
+	var req request.UserLogin
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "登录失败,数据格式有误", "code": http.StatusBadRequest, "data": nil})
 		return
 	}
-	session, info, err := uc.userService.UserLogin(ctx, req)
-	switch err {
+	session, info, syserr := uc.userService.UserLogin(ctx, req)
+	switch syserr {
 	case syserror.EmailError:
 		c.JSON(http.StatusBadRequest, gin.H{"message": "登录失败,邮箱格式有误", "code": http.StatusBadRequest, "data": nil})
 	case syserror.NotFoundError:
@@ -84,7 +84,7 @@ func (uc *UserController) UserLogin(c *gin.Context) {
 func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	var ctx = c.Request.Context()
 	userID := c.GetInt64("userID")
-
+	fmt.Println(c.ContentType())
 	// 获取上传文件
 	rawFile, fileHeader, err := c.Request.FormFile("file")
 	if err != nil {

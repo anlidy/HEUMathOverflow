@@ -249,3 +249,34 @@ func (s *userService) UserUpdatePassword(ctx context.Context, userID int64, req 
 	}
 	return syserror.NoError
 }
+
+// 更新用户角色
+func (s *userService) UpdateUserRole(ctx context.Context, opID int64, req request.UserRole) syserror.Error {
+	operator, err1 := s.userRepo.FindUserByID(opID)
+	target, err2 := s.userRepo.FindUserByID(req.ID)
+	if err1 == gorm.ErrRecordNotFound || err2 == gorm.ErrRecordNotFound {
+		return syserror.NotFoundError
+	} else if err1 != nil || err2 != nil {
+		log.Printf("[%s] %v %v\n", s.serviceName, err1, err2)
+		return syserror.InternalError
+	}
+	// 无效的Role, 操作者role不是Admin且role权限低于目标权限时,报错返回
+	if !model.ValidateRole(req.NewRole) || operator.Role != model.Admin && operator.Role <= req.NewRole {
+		return syserror.PermissionDeniedError
+	}
+	target.Role = req.NewRole
+	// 更新数据库
+	_, err := s.userRepo.UpdateUser(&target)
+	if err != nil {
+		log.Printf("[%s] %v\n", s.serviceName, err)
+		return syserror.InternalError
+	}
+
+	// 更新redis
+	err = s.sessionRepo.UpdateUserRole(ctx, target.ID, target.Role)
+	if err != nil {
+		return syserror.InternalError
+	}
+
+	return syserror.NoError
+}

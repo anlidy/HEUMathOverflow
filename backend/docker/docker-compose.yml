@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   postgres:
     image: postgres:17
@@ -6,11 +5,17 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-user_db}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     volumes:
       - ./Postgre/data:/var/lib/postgresql/data
+      - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql # 初始化创建数据库
 
   redis:
     image: redis:7-alpine
@@ -31,21 +36,38 @@ services:
       - "9001:9001"
     volumes:
       - ./Minio/data:/data
+  
+  mongodb:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./Mongo/data:/data/db
+      - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js # 初始化创建数据库
 
+  # 用户服务
   user-service:
     build:
       context: ..
       dockerfile: cmd/user-service/Dockerfile
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
     environment:
       # App reads internal/common/config/user.yaml by default; config file already points to container hostnames.
       GIN_MODE: release
     ports:
       - "8081:8081"
-
+  
+  # 论坛服务
   forum-service:
     build:
       context: ..
@@ -58,6 +80,7 @@ services:
     ports:
       - "8082:8082"
 
+  # 审核模块
   audit-service:
     build:
       context: ..

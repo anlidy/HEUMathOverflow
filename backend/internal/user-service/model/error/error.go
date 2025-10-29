@@ -12,4 +12,5 @@ const (
 	NotFoundError
 	InternalError
 	DuplicateError
+	PermissionDeniedError
 )
