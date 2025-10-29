@@ -8,7 +8,9 @@
 
 #### 项目结构:
 
- `/cmd `  各个go服务的启动入口(main.go)
+`/bin` 部署用脚本
+
+`/cmd `  各个go服务的启动入口(main.go)
 
 `/docker` docker配置文件
 
@@ -34,18 +36,13 @@
 
 本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了一个示例 `docker-compose.yml`，用于本地一键启动 Postgres、Redis、MinIO 以及三个服务。
 
-快速开始（在 `backend` 目录下执行）：
+快速开始（任意目录均可，相对位置调用脚本即可）：
 
 ```bash
-# 复制示例环境变量文件并按需修改
-cp docker/.env.example docker/.env
-
-# 在 docker 目录下启动（compose 文件位于 docker/docker-compose.yml）
-cd docker
-# 先启动数据库容器
-docker compose up --build -d
-# 再启动服务
-docker compose -f docker-compose.service.yml up --build -d
+# 脚本部署
+# Windows把脚本换成run.cmd
+# 在任何目录下可用
+./bin/run up --build -d
 
 # 查看docker容器运行状态
 docker ps
@@ -62,5 +59,5 @@ docker ps
 
 ```bash
 # 停止服务容器
-docker compose -f docker-compose.service.yml -f docker-compose.yml down
+docker compose -p backend down
 ```
