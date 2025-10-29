@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted, onUnmounted, onActivated } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useUserStore } from '@/stores/useUserStore'
 import type { FormInst, FormRules } from 'naive-ui'
 import { PersonOutline, LockClosedOutline } from '@vicons/ionicons5'
 
-const router = useRouter()
 const userStore = useUserStore()
 
 // 表单引用和状态
@@ -35,23 +34,36 @@ const rules: FormRules = {
 const handleSubmit = async (e: Event) => {
     e.preventDefault()
     try {
-        // 表单验证
         await formRef.value?.validate()
-        // 设置加载状态
         loading.value = true
-        // 调用登录动作
         const success = await userStore.login(formData)
         if (success) {
-            // 登录成功后的处理在 userStore 中已完成
             console.log('登录成功')
         }
     } catch (errors) {
-        // 表单验证失败，Naive UI 会自动显示错误信息
         console.log('表单验证失败:', errors)
     } finally {
         loading.value = false
     }
 }
+
+const resetForm = () => {
+    formData.email = ''
+    formData.password = ''
+    formData.remember = false
+    formRef.value?.restoreValidation()
+}
+
+onBeforeRouteLeave((to, from) => {
+    resetForm()
+})
+
+onUnmounted(() => {
+    resetForm()
+})
+onActivated(() => {
+    resetForm()
+})
 </script>
 
 <template>
@@ -75,7 +87,6 @@ const handleSubmit = async (e: Event) => {
                         type="password"
                         placeholder="请输入密码"
                         show-password-on="click"
-                        :input-props="{ autocomplete: 'current-password' }"
                         @keydown.enter="handleSubmit">
                         <template #prefix>
                             <n-icon :component="LockClosedOutline" />
