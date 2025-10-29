@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +34,10 @@ func (uc *UserController) UserRegister(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "注册失败,数据格式有误", "code": http.StatusBadRequest, "data": nil})
 		return
 	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "注册失败,用户名不能为空", "code": http.StatusBadRequest, "data": nil})
+	}
 	session, info, err := uc.userService.UserRegister(ctx, req)
 	switch err {
 	case syserror.EmailError:
@@ -46,7 +51,7 @@ func (uc *UserController) UserRegister(c *gin.Context) {
 	case syserror.NoError:
 		// 设置 Cookie
 		c.SetCookie("session-id", session.SessionID, int(session.TTL.Seconds()), "/", "localhost", false, true) // 生产环境改成 math-overflow.edu
-		c.JSON(http.StatusOK, gin.H{"message": "注册成功", "code": http.StatusOK, "data": info})
+		c.JSON(http.StatusOK, gin.H{"message": "注册成功", "code": http.StatusOK, "data": gin.H{"user_info": info}})
 	}
 }
 
@@ -71,7 +76,7 @@ func (uc *UserController) UserLogin(c *gin.Context) {
 	case syserror.NoError:
 		// 设置 Cookie
 		c.SetCookie("session-id", session.SessionID, int(session.TTL.Seconds()), "/", "localhost", false, true) // 生产环境改成 math-overflow.edu
-		c.JSON(http.StatusOK, gin.H{"message": "登录成功", "code": http.StatusOK, "data": info})
+		c.JSON(http.StatusOK, gin.H{"message": "登录成功", "code": http.StatusOK, "data": gin.H{"user_info": info}})
 	}
 }
 
