@@ -25,7 +25,7 @@ Response:
   "code": int,
   "message":string,
   "data": {
-    "userInfo": {
+    "user_info": {
       "id": int,
       "username": string,
       "role": string,
@@ -58,12 +58,13 @@ Response:
   "code": int,
   "message": string,
   "data": {
-    "userInfo": {
+    "user_info": {
       "id": int,
       "username": string,
       "role": string,  // 默认角色为学生
       "avatar_url":string // 默认为空,前端可以显示一个默认头像
     }
+}
 }
 ```
 

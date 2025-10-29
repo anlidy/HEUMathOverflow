@@ -28,9 +28,9 @@
 - `/router` 路由层, 负责定义服务的请求路径和处理函数, 调用中间件
 - `model` 数据模型, 包括用户表结构, 请求/响应体结构等 
 
-````
 
-## Docker 部署
+
+### Docker 部署
 
 本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了一个示例 `docker-compose.yml`，用于本地一键启动 Postgres、Redis、MinIO 以及三个服务。
 
@@ -52,7 +52,7 @@ docker compose up --build -d
 
 注意：源码中的配置文件已调整为在容器网络中使用服务名（如 `postgres`, `minio`, `redis`）作为 host；如果你需要在宿主机上运行服务并连接宿主机上的数据库，请把 `internal/common/config/*.yaml` 中的 host 改回 `localhost` 或使用适当的环境配置/挂载覆盖。
 
-清理：
+停止容器并清理：
 
 ```bash
 docker compose down -v
