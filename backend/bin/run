@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure we run from this script's directory so paths to compose files are correct
+DIR="$(cd "$(dirname "${0}")" && pwd)"
+cd "$DIR"
+cd ../docker
+
+# 查找docker目录下是否存在.env文件，不存在则从.env.example复制一份
+if [ ! -f .env ]; then
+  cp .env.example .env
+fi
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  cat <<'EOF'
+Usage: run [docker-compose up args...]
+
+Examples:
+  ./run up -d         # detached
+  ./run up --build -d # build then detached
+  ./run down       # run `down` instead of `up`
+EOF
+  exit 0
+fi
+
+# 取第一个参数作为子命令（默认 up），其余参数透传给 docker compose
+CMD="${1:-}"
+shift || true
+# Now $CMD is the compose subcommand (up/down/ps/etc.), and "$@" are the remaining args
+if [ "$CMD" = "down" ]; then
+  docker compose -p backend -f docker-compose.service.yml "$CMD" "$@"
+  docker compose -p backend -f docker-compose.yml "$CMD" "$@"
+else
+  docker compose -p backend -f docker-compose.yml "$CMD" "$@"
+  docker compose -p backend -f docker-compose.service.yml "$CMD" "$@"
+fi
