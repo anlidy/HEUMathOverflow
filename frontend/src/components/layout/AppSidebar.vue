@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-    <div :class="['flex h-full min-w-50 flex-col', containerClass]">
+    <div :class="['flex h-full w-full flex-col', containerClass]">
         <div :class="['flex items-center justify-center', headerClass]">
             <slot name="header" />
         </div>

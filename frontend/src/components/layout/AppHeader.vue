@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-    <div :class="['flex h-16 w-full items-center justify-between', containerClass]">
+    <div :class="['flex w-full items-center justify-between', containerClass]">
         <div :class="['flex items-center justify-start', leftClass]">
             <slot name="left" />
         </div>

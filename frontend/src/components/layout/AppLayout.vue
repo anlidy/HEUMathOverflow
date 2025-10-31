@@ -13,8 +13,15 @@ defineProps<{
             <slot name="header" />
         </div>
         <div :class="['flex flex-1', mainClass]">
-            <slot name="sidebar" />
-            <slot name="content" />
+            <div class="hidden md:block md:w-1/6">
+                <slot name="sidebar" />
+            </div>
+            <div class="flex-1">
+                <slot name="content" />
+            </div>
+            <div class="hidden lg:block lg:w-1/6">
+                <slot name="right-sidebar" />
+            </div>
         </div>
         <div :class="['flex items-center justify-center', footerClass]">
             <slot name="footer" />
