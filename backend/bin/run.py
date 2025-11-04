@@ -51,13 +51,19 @@ def main(argv: list[str] | None = None) -> int:
         print(help_str)
         return 0
 
-    # Determine command (default up)
+    # Require explicit compose subcommand (no default)
     if len(argv) == 0:
-        cmd = 'up'
-        extra = []
-    else:
-        cmd = argv[0]
-        extra = argv[1:]
+        print('Missing compose subcommand (e.g. up or down).')
+        print(help_str)
+        return 2
+
+    if argv[0].startswith('-'):
+        print('First argument must be a compose subcommand (e.g. up or down); options must follow the subcommand.')
+        print(help_str)
+        return 2
+
+    cmd = argv[0]
+    extra = argv[1:]
 
     # Compose commands: match existing bash behavior
     # if down -> run service then base; else -> base then service
@@ -77,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             return rc
         rc = run_cmd('docker-compose.yml')
+        if rc != 0:
+            return rc
+        rc = subprocess.run(['../bin/del_img']).returncode
     else:
         rc = run_cmd('docker-compose.yml')
         if rc != 0:

@@ -58,6 +58,6 @@ docker ps
 停止容器并清理：
 
 ```bash
-# 停止服务容器
+# 停止服务容器, 自动删除容器和.env
 docker compose -p backend down
 ```

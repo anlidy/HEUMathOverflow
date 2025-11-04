@@ -1,6 +1,6 @@
 module MathOverflow
 
-go 1.23.5
+go 1.24.9
 
 require (
 	github.com/bwmarrin/snowflake v0.3.0 // indirect

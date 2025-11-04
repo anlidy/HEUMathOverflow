@@ -13,24 +13,46 @@ fi
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
-Usage: run [docker-compose up args...]
+Usage: run [compose-subcommand] [args...]
 
 Examples:
   ./run up -d         # detached
   ./run up --build -d # build then detached
-  ./run down       # run `down` instead of `up`
+  ./run down          # run `down` instead of `up`
 EOF
   exit 0
 fi
 
-# 取第一个参数作为子命令（默认 up），其余参数透传给 docker compose
-CMD="${1:-}"
+# Require explicit compose subcommand (no default)
+if [ $# -eq 0 ]; then
+  echo "Missing compose subcommand (e.g. up or down)."
+  echo
+  echo "Usage: run [compose-subcommand] [args...]"
+  exit 1
+fi
+
+DOCKER_CMD=${DOCKER_CMD:-docker}
+if [[ "${1}" == "pd" ]]; then
+  DOCKER_CMD=podman
+  shift || true
+fi
+
+if [[ "${1}" == -* ]]; then
+  echo "First argument must be a compose subcommand (e.g. up or down); options must follow the subcommand."
+  echo
+  echo "Usage: run [compose-subcommand] [args...]"
+  exit 1
+fi
+
+# 取第一个参数作为子命令，其余参数透传给 docker compose
+CMD="${1}"
 shift || true
 # Now $CMD is the compose subcommand (up/down/ps/etc.), and "$@" are the remaining args
 if [ "$CMD" = "down" ]; then
-  docker compose -p backend -f docker-compose.service.yml "$CMD" "$@"
-  docker compose -p backend -f docker-compose.yml "$CMD" "$@"
+  "$DOCKER_CMD" compose -p backend -f docker-compose.service.yml "$CMD" "$@"
+  "$DOCKER_CMD" compose -p backend -f docker-compose.yml "$CMD" "$@"
+  ../bin/del_img
 else
-  docker compose -p backend -f docker-compose.yml "$CMD" "$@"
-  docker compose -p backend -f docker-compose.service.yml "$CMD" "$@"
+  "$DOCKER_CMD" compose -p backend -f docker-compose.yml "$CMD" "$@"
+  "$DOCKER_CMD" compose -p backend -f docker-compose.service.yml "$CMD" "$@"
 fi
