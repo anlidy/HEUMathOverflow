@@ -7,7 +7,7 @@
 #   --build-arg EXPOSE_PORT=8082 \
 #   -f Dockerfile.service -t forum-service:latest .
 
-FROM golang:1.24.9-alpine AS builder
+FROM golang:1.24.9 AS builder
 ARG SERVICE_DIR
 ARG BINARY_NAME
 WORKDIR /src
@@ -29,5 +29,6 @@ RUN if [ -n "${CONFIG_PATH}" ]; then true; fi
 COPY ${CONFIG_PATH} /app/
 EXPOSE ${EXPOSE_PORT}
 ENV GIN_MODE=release
+# 
 ENTRYPOINT ["/usr/local/bin/service"]
 # CMD ["tail", "-f", "/dev/null"]

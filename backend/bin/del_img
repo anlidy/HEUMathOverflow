@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# clean_images.sh
+# 删除镜像：当镜像的 repository:tag 名称同时包含指定子串时将其删除（默认子串：backend,service）
+# 支持参数：
+#   --substrs a,b,c   子串列表（逗号分隔），默认 backend,service
+#   --dry-run         仅列出将被删除的镜像，不执行删除
+#   --yes|-y          不交互，直接删除
+#   --force|-f        使用 docker image rm -f 强制删除
+#   -h|--help         显示帮助
+
+SUBSTRS="backend,service"
+DRY_RUN=0
+YES=0
+FORCE=0
+
+usage(){
+  cat <<EOF
+Usage: $(basename "$0") [options]
+
+Options:
+  --substrs a,b    Comma-separated substrings to match in image name (default: backend,service)
+  --dry-run        Show matching images but do not delete
+  --yes, -y        Do not prompt, proceed with deletion
+  --force, -f      Pass -f to 'docker image rm' to force removal
+  -h, --help       Show this help
+
+Example:
+  $(basename "$0") --substrs backend,service --dry-run
+  $(basename "$0") --substrs backend,service -y -f
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --substrs)
+      shift
+      SUBSTRS="$1"
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      ;;
+    --yes|-y)
+      YES=1
+      ;;
+    --force|-f)
+      FORCE=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown arg: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+IFS=',' read -r -a NEEDS <<< "$SUBSTRS"
+
+mapfile -t lines < <(docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null || true)
+
+declare -a MATCH_IDS=()
+declare -a MATCH_NAMES=()
+
+for line in "${lines[@]}"; do
+  # split last token as ID, rest as name
+  id="${line##* }"
+  name="${line% *}"
+  lname=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+  ok=1
+  for s in "${NEEDS[@]}"; do
+    ss=$(echo "$s" | tr '[:upper:]' '[:lower:]' | xargs)
+    if [[ -z "$ss" ]]; then
+      continue
+    fi
+    if [[ "$lname" != *"$ss"* ]]; then
+      ok=0
+      break
+    fi
+  done
+  if [[ $ok -eq 1 ]]; then
+    MATCH_IDS+=("$id")
+    MATCH_NAMES+=("$name")
+  fi
+done
+
+if [[ ${#MATCH_IDS[@]} -eq 0 ]]; then
+  echo "No matching images found for substrings: ${NEEDS[*]}"
+  exit 0
+fi
+
+echo "Found ${#MATCH_IDS[@]} matching image(s):"
+for i in "${!MATCH_IDS[@]}"; do
+  printf '  %s  %s\n' "${MATCH_IDS[$i]}" "${MATCH_NAMES[$i]}"
+done
+
+if [[ $DRY_RUN -eq 1 ]]; then
+  echo "Dry run: no images were removed."
+  exit 0
+fi
+
+if [[ $YES -ne 1 ]]; then
+  read -r -p "Proceed to delete these ${#MATCH_IDS[@]} image(s)? [y/N] " ans
+  case "$ans" in
+    [yY]|[yY][eE][sS]) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+fi
+
+echo "Removing images..."
+rc=0
+for id in "${MATCH_IDS[@]}"; do
+  if [[ $FORCE -eq 1 ]]; then
+    if docker image rm -f "$id"; then
+      echo "Removed $id"
+    else
+      echo "Failed to remove $id" >&2
+      rc=1
+    fi
+  else
+    if docker image rm "$id"; then
+      echo "Removed $id"
+    else
+      echo "Failed to remove $id (containers may be using it). Try --force to force removal." >&2
+      rc=1
+    fi
+  fi
+done
+
+exit $rc
