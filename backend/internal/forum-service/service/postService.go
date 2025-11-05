@@ -69,7 +69,6 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 	}
 	// 请求正常
 	// 创建mongo文档
-	
 	// 创建帖子元数据
 	var postID = utils.GenerateSnowflakeID()
 	var post = model.Post{
