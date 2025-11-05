@@ -21,17 +21,24 @@ type MongoConfig struct {
 }
 
 type MinioConfig struct {
-	Endpoint  string
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
-	Bucket    string
-	UseSSL    bool `mapstructure:"use_ssl"`
+	Endpoint       string
+	AccessKey      string `mapstructure:"access_key"`
+	SecretKey      string `mapstructure:"secret_key"`
+	Bucket         string
+	UseSSL         bool `mapstructure:"use_ssl"`
+	CleanTmp       bool `mapstructure:"clean_tmp"`
+	CleanCycleDays int  `mapstructure:"clean_cycle_days"`
 }
 
 type RedisConfig struct {
 	Addr     string
 	Password string
 	DB       int
+}
+
+type GRPCConfig struct {
+	ExposePort      int    `mapstructure:"expose_port"`
+	UserServiceAddr string `mapstructure:"user_service_addr"`
 }
 
 type Config struct {
@@ -43,12 +50,13 @@ type Config struct {
 	MongoDB  MongoConfig
 	Minio    MinioConfig
 	Redis    RedisConfig
+	GRPC     GRPCConfig
 }
 
 // 常量定义
 var (
 	// regex
-	EmailPattern = `^[a-zA-Z0-9._%+-]+@hrbeu.edu.cn`
+	EmailPattern = `^[\w.-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
 	ImagePattern = `(?i)\.(jpg|jpeg|png|bmp)$` // ?i 表示忽略大小写
 
 	// SnowFlake

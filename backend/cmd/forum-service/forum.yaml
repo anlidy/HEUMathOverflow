@@ -19,3 +19,9 @@ minio:
   secret_key: minioadmin
   bucket: forum
   use_ssl: false
+  clean_tmp: true
+  clean_cycle_days: 1
+
+grpc:
+  expose_port:  50052
+  user_service_addr: user-service:50051

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package user;
+option go_package = "backend/proto/user;userpb";
+
+// 用户服务接口定义
+service UserService {
+  rpc GetUserInfo (GetUserRequest) returns (GetUserResponse);
+}
+
+// 请求与响应结构
+message GetUserRequest {
+  int64 user_id = 1;    // 1代表编号
+}
+
+message GetUserResponse {
+  int64 user_id = 1;
+  string username = 2;
+  int64 role = 3;     // x64平台的int == int64
+  string avatar_url = 4;
+}

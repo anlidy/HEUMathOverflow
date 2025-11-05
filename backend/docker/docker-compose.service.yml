@@ -1,0 +1,52 @@
+services:
+  # 用户服务
+  user-service:
+    build:
+      context: ..
+      dockerfile: docker/containerfile.service
+      args:
+        SERVICE_DIR: cmd/user-service
+        CONFIG_PATH: cmd/user-service/user.yaml
+        EXPOSE_PORT: 8081
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      # App reads internal/common/config/user.yaml by default; config file already points to container hostnames.
+      GIN_MODE: release
+    ports:
+      - "8081:8081"
+  
+  # 论坛服务
+  forum-service:
+    build:
+      context: ..
+      dockerfile: docker/containerfile.service
+      args:
+        SERVICE_DIR: cmd/forum-service
+        CONFIG_PATH: cmd/forum-service/forum.yaml
+        EXPOSE_PORT: 8082
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8082:8082"
+
+  # 审核模块
+  audit-service:
+    build:
+      context: ..
+      dockerfile: docker/containerfile.service
+      args:
+        SERVICE_DIR: cmd/audit-service
+        CONFIG_PATH: cmd/audit-service/audit.yaml
+        EXPOSE_PORT: 8083
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8083:8083"
+
+networks:
+  default:
+    name: backend_default
+    external: true
+    driver: bridge

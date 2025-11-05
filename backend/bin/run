@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure we run from this script's directory so paths to compose files are correct
+DIR="$(cd "$(dirname "${0}")" && pwd)"
+cd "$DIR"
+cd ../docker
+
+# 查找docker目录下是否存在.env文件，不存在则从.env.example复制一份
+if [ ! -f .env ]; then
+  cp .env.example .env
+fi
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  cat <<'EOF'
+Usage: run [compose-subcommand] [args...]
+
+Examples:
+  ./run up -d         # detached
+  ./run up --build -d # build then detached
+  ./run down          # run `down` instead of `up`
+EOF
+  exit 0
+fi
+
+# Require explicit compose subcommand (no default)
+if [ $# -eq 0 ]; then
+  echo "Missing compose subcommand (e.g. up or down)."
+  echo
+  echo "Usage: run [compose-subcommand] [args...]"
+  exit 1
+fi
+
+DOCKER_CMD=${DOCKER_CMD:-docker}
+if [[ "${1}" == "pd" ]]; then
+  DOCKER_CMD=podman
+  shift || true
+fi
+
+if [[ "${1}" == -* ]]; then
+  echo "First argument must be a compose subcommand (e.g. up or down); options must follow the subcommand."
+  echo
+  echo "Usage: run [compose-subcommand] [args...]"
+  exit 1
+fi
+
+# 取第一个参数作为子命令，其余参数透传给 docker compose
+CMD="${1}"
+shift || true
+# Now $CMD is the compose subcommand (up/down/ps/etc.), and "$@" are the remaining args
+if [ "$CMD" = "down" ]; then
+  "$DOCKER_CMD" compose -p backend -f docker-compose.service.yml "$CMD" "$@"
+  "$DOCKER_CMD" compose -p backend -f docker-compose.yml "$CMD" "$@"
+  ../bin/del_img
+else
+  "$DOCKER_CMD" compose -p backend -f docker-compose.yml "$CMD" "$@"
+  "$DOCKER_CMD" compose -p backend -f docker-compose.service.yml "$CMD" "$@"
+fi

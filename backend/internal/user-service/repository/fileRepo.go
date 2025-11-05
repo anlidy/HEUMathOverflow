@@ -1,29 +1,29 @@
 package repository
 
 import (
-	"MathOverflow/internal/common/db"
-	"MathOverflow/internal/user-service/model"
+	"MathOverflow/internal/common/client"
+	common "MathOverflow/internal/common/model"
 	"context"
 	"fmt"
 )
 
 type FileRepo interface {
-	UploadFile(ctx context.Context, bucket string, file model.File) (string, error)
-	DownloadFile(ctx context.Context, filename string) (*model.File, error)
+	UploadFile(ctx context.Context, bucket string, file common.File) (string, error)
+	DownloadFile(ctx context.Context, filename string) (*common.File, error)
 	DeleteFile(ctx context.Context, filename string) error
 	FileExists(ctx context.Context, filename string) (bool, error)
 }
 
 type fileRepo struct {
-	client db.MinioClinet
+	client *client.MinioClinet
 }
 
-func NewFileRepository(client db.MinioClinet) FileRepo {
+func NewFileRepository(client *client.MinioClinet) FileRepo {
 	return &fileRepo{client: client}
 }
 
 // 上传文件并返回文件路径
-func (r *fileRepo) UploadFile(ctx context.Context, bucket string, file model.File) (string, error) {
+func (r *fileRepo) UploadFile(ctx context.Context, bucket string, file common.File) (string, error) {
 
 	err := r.client.Upload(ctx, file.Filename, file.Data, file.Size, file.ContentType)
 	if err != nil {
@@ -34,7 +34,7 @@ func (r *fileRepo) UploadFile(ctx context.Context, bucket string, file model.Fil
 }
 
 // 下载文件
-func (r *fileRepo) DownloadFile(ctx context.Context, filename string) (*model.File, error) {
+func (r *fileRepo) DownloadFile(ctx context.Context, filename string) (*common.File, error) {
 	file, err := r.client.Download(ctx, filename)
 	return file, err
 }

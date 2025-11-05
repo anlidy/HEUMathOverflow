@@ -12,7 +12,7 @@
 | email         | VARCHAR(100)       | 邮箱（唯一）                                            |
 | username      | VARCHAR(50)        | 用户名（唯一）                                          |
 | password_hash | TEXT               | 加密密码                                                |
-| role          | VARCHAR(20)        | 用户角色：`student` / `assistant` / `teacher` / `admin` |
+| role          | INT        | 枚举值：1: `student`  2: `assistant`   3: `teacher`  4: `admin` |
 | avatar_url    | TEXT               | 用户头像url, 文件存入MinOS                              |
 | created_at    | TIMESTAMP          | 注册时间                                                |
 | last_login    | TIMESTAMP          | 上次登录时间                                            |
@@ -21,7 +21,7 @@
 
 **已迁移到Redis数据库**, 采用sessionID -> {userID, roleKey,remember}和roleKey->role键值映射, 并根据以下情况设置过期时间:
 
--  前端remember为true, 设置30天过期, 每当用户活动则延长;
+-  前端remember为true, 设置30天过期, 每当用户活动则重置为30天;
 -  前端remember为false 或 新用户注册, 设置1天过期, 每当用户活动则重置为1天.
 
 ##### 1.2. forum_db库: 帖子与回复索引
@@ -30,30 +30,31 @@
 
 ##### `posts`表：存储原帖的基本信息
 
-| 字段名        | 类型         | 说明                                              |
-| ------------- | ------------ | ------------------------------------------------- |
-| id            | BIGSERIAL PK | 帖子ID                                            |
-| author_id     | BIGINT       | 发帖人ID                                          |
-| title         | VARCHAR(255) | 帖子标题                                          |
-| tags          | TEXT[]       | 标签数组（如 ['微积分', '难题']）                 |
-| status        | VARCHAR(20)  | 帖子状态：`unanswered` / `answered` / `certified` |
-| mongo_doc_id  | CHAR(24)     | 对应 MongoDB 文档的 ObjectID                      |
-| created_at    | TIMESTAMP    | 发布时间                                          |
-| updated_at    | TIMESTAMP    | 更新时间                                          |
-| last_reply_at | TIMESTAMP    | 最后回复时间                                      |
+| 字段名        | 类型         | 说明                                                    |
+| ------------- | ------------ | ------------------------------------------------------- |
+| id            | BIGSERIAL PK | 帖子ID                                                  |
+| author_id     | BIGINT       | 发帖人ID                                                |
+| title         | VARCHAR(255) | 帖子标题                                                |
+| tags          | TEXT[]       | 标签数组（如 ['微积分', '难题']）                       |
+| status        | INT          | 帖子状态, 枚举值：1:`未解答`  2:`已解答` 3:  `教师认证` |
+| doc_id        | CHAR(24)     | 对应 MongoDB 文档的 ObjectID                            |
+| last_reply_at | TIMESTAMP    | 最后回复时间                                            |
+| created_at    | TIMESTAMP    | 发布时间                                                |
+| updated_at    | TIMESTAMP    | 更新时间                                                |
 
 ##### `replies`表：存储回帖的基本信息
 
-| 字段名          | 类型         | 说明                                          |
-| --------------- | ------------ | --------------------------------------------- |
-| id              | BIGSERIAL PK | 回复ID                                        |
-| post_id         | BIGINT       | 所属原贴的ID                                  |
-| author_id       | BIGINT       | 回复者ID（学生/AI/教师）                      |
-| parent_reply_id | BIGINT NULL  | 若为回复他人评论，则指向该评论ID；否则为 NULL |
-| mongo_doc_id    | CHAR(24)     | 回复内容在 MongoDB 中的文档ID                 |
-| created_at      | TIMESTAMP    | 回复时间                                      |
-| is_certified    | BOOLEAN      | 是否被教师认证                                |
-| certified_by    | BIGINT       | 认证教师ID（可空）                            |
+| 字段名          | 类型         | 说明                                                       |
+| --------------- | ------------ | ---------------------------------------------------------- |
+| id              | BIGSERIAL PK | 回复ID                                                     |
+| post_id         | BIGINT       | 所属原贴的ID                                               |
+| replier_id      | BIGINT       | 回复者ID（学生/AI/教师/管理员）                            |
+| parent_reply_id | BIGINT NULL  | 若为回复他人评论，则指向该评论ID；否则为 NULL              |
+| mongo_doc_id    | CHAR(24)     | 回复内容在 MongoDB 中的文档ID                              |
+| status          | INT          | 评论状态,枚举值: 1: `未被精选` 2: `作者精选` 3: `教师精选` |
+| certified_by    | BIGINT NULL  | 精选该评论的教师ID（可空）                                 |
+| created_at      | TIMESTAMP    | 回复时间                                                   |
+| updated_at      | TIMESTAMP    | 更新时间                                                   |
 
 ##### 1.3. audit_db库: 内容审核和日志
 
