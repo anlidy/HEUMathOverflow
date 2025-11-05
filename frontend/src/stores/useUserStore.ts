@@ -14,19 +14,11 @@ export const useUserStore = defineStore('user', () => {
     // 登录操作
     const login = async (formData: LoginForm) => {
         try {
-            const response: LoginResponse = await api.auth.login(formData)
+            const response: LoginResponse = await api.user.login(formData)
 
             if (response.code === 200) {
-                // 保存用户信息
                 userInfo.value = response.data.user_info
-
-                // 保存到 localStorage
-                localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
-
-                // 显示成功消息
                 message?.success('登录成功！')
-
-                // 跳转到首页
                 router.push('/')
                 return true
             } else {
@@ -43,24 +35,16 @@ export const useUserStore = defineStore('user', () => {
     const register = async (formData: RegisterForm) => {
         try {
             // 验证密码确认
-            if (formData.password !== formData.confirmPassword) {
+            if (formData.password !== formData.confirm_password) {
                 message?.error('两次输入的密码不一致')
                 return false
             }
 
-            const response: RegisterResponse = await api.auth.register(formData)
+            const response: RegisterResponse = await api.user.register(formData)
 
             if (response.code === 200) {
-                // 保存用户信息
                 userInfo.value = response.data.user_info
-
-                // 保存到 localStorage
-                localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
-
-                // 显示成功消息
                 message?.success('注册成功！')
-
-                // 跳转到首页
                 router.push('/')
                 return true
             } else {
@@ -76,27 +60,7 @@ export const useUserStore = defineStore('user', () => {
     // 退出登录
     const logout = () => {
         userInfo.value = null
-        localStorage.removeItem('userInfo')
         router.push('/login')
-    }
-
-    // 初始化用户状态（从 localStorage）
-    const initUser = () => {
-        const savedUserInfo = localStorage.getItem('userInfo')
-
-        if (savedUserInfo) {
-            userInfo.value = JSON.parse(savedUserInfo)
-        }
-    }
-
-    // 计算属性：是否已登录
-    const isLoggedIn = () => {
-        return !!userInfo.value
-    }
-
-    // 计算属性：是否是教师或管理员
-    const isTeacherOrAdmin = () => {
-        return userInfo.value?.role === 'teacher' || userInfo.value?.role === 'admin'
     }
 
     return {
@@ -104,8 +68,5 @@ export const useUserStore = defineStore('user', () => {
         login,
         register,
         logout,
-        initUser,
-        isLoggedIn,
-        isTeacherOrAdmin,
     }
 })

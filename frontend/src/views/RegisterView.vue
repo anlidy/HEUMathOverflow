@@ -17,7 +17,7 @@ const formData = reactive({
     username: '',
     email: '',
     password: '',
-    confirmPassword: '',
+    confirm_password: '',
 })
 
 // 自定义验证函数：确认密码
@@ -107,7 +107,7 @@ const handleSubmit = async (e: Event) => {
                 </n-form-item>
                 <n-form-item path="confirmPassword" label="确认密码" class="[&_.n-form-item-label]:font-medium">
                     <n-input
-                        v-model:value="formData.confirmPassword"
+                        v-model:value="formData.confirm_password"
                         type="password"
                         placeholder="请再次输入密码"
                         show-password-on="click"

@@ -14,7 +14,7 @@ export interface RegisterForm {
     username: string
     email: string
     password: string
-    confirmPassword: string
+    confirm_password: string
 }
 
 // 注册请求类型（只包含需要发送给后端的字段）
