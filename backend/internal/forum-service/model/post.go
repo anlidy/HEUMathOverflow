@@ -22,7 +22,7 @@ type Post struct {
 	Tags        []string   `gorm:"type:text[]" json:"tags"`
 	Status      PostStatus `gorm:"not null" json:"status"`
 	DocID       string     `gorm:"type:char(24);not null" json:"-"` // objectID 为24字节
-	LastReplyAt time.Time  `json:"last_reply_at"`
+	LastReplyAt *time.Time `json:"last_reply_at"`                   // 指针类型便于判空
 	CreatedAt   time.Time  `gorm:"autoCreateTime" json:"-"`
 	UpdatedAt   time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
 }

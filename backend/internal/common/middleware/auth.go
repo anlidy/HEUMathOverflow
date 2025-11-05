@@ -16,7 +16,7 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		// 从 Cookie 中读取 sessionID
 		sessionID, err := c.Cookie("session-id")
 		if err != nil || sessionID == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "参数校验不通过,请重新登录", "code": http.StatusUnauthorized})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "请先登录再进行此操作", "code": http.StatusUnauthorized})
 			return
 		}
 
