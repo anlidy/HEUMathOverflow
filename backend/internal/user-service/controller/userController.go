@@ -1,8 +1,8 @@
 package controller
 
 import (
+	common "MathOverflow/internal/common/model"
 	"MathOverflow/internal/common/utils"
-	"MathOverflow/internal/user-service/model"
 	syserror "MathOverflow/internal/user-service/model/error"
 	"MathOverflow/internal/user-service/model/request"
 	"MathOverflow/internal/user-service/service"
@@ -84,7 +84,7 @@ func (uc *UserController) UserLogin(c *gin.Context) {
 func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	var ctx = c.Request.Context()
 	userID := c.GetInt64("userID")
-	fmt.Println(c.ContentType())
+	// fmt.Println(c.ContentType())
 	// 获取上传文件
 	rawFile, fileHeader, err := c.Request.FormFile("file")
 	if err != nil {
@@ -108,7 +108,7 @@ func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	}
 
 	fileName := fmt.Sprintf("%d%s", userID, fileExt) // userID.jpg
-	var file = model.File{
+	var file = common.File{
 		Filename:    fileName,
 		Data:        rawFile,
 		Size:        fileHeader.Size,

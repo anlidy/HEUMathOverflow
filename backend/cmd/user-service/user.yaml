@@ -16,8 +16,12 @@ minio:
   secret_key: minioadmin
   bucket: user
   use_ssl: false
+  clean_tmp: false
 
 redis:
   addr: redis:6379
   password: ""
   db: 0
+
+grpc:
+  serv_port: 50051

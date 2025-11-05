@@ -1,16 +1,24 @@
 package main
 
 import (
+	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
-	"MathOverflow/internal/common/db"
 	"MathOverflow/internal/user-service/controller"
 	"MathOverflow/internal/user-service/model"
 	"MathOverflow/internal/user-service/repository"
 	"MathOverflow/internal/user-service/router"
 	"MathOverflow/internal/user-service/service"
+	pb "MathOverflow/proto/user"
+	"context"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
+
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -23,7 +31,7 @@ func main() {
 		panic(err)
 	}
 	// 初始化pgsql数据库
-	pg, err := db.InitPostgres(cfg.Postgres)
+	pg, err := client.InitPostgres(cfg.Postgres)
 	if err != nil {
 		panic(err)
 	}
@@ -32,14 +40,14 @@ func main() {
 	}
 
 	// 初始化redis数据库
-	rdb, err := db.InitRedis(cfg.Redis)
+	rdb, err := client.InitRedis(cfg.Redis)
 	if err != nil {
 		panic(err)
 	}
 
 	// 初始化minio数据库
 	fmt.Println(cfg.Minio)
-	minio, err := db.InitMinIO(cfg.Minio)
+	minio, err := client.InitMinIO(cfg.Minio)
 	if err != nil {
 		panic(err)
 	}
@@ -51,7 +59,42 @@ func main() {
 
 	userService := service.NewUserService(cfg, userRepo, sessionRepo, fileRepo)
 	userController := controller.NewUserController(userService)
-	r := router.SetupRouter(rdb, userController)
-	log.Println("User Service is running...")
-	r.Run(fmt.Sprintf(":%d", cfg.Server.Port))
+	userServer := controller.NewUserServer(userService)
+
+	// 并发启动gin和gRPC
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		r := router.SetupRouter(rdb, userController)
+		srv := &http.Server{
+			Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
+			Handler: r, // Gin 实现了 http.Handler 接口
+		}
+		go func() {
+			<-ctx.Done()
+			srv.Shutdown(context.Background())
+			log.Println("User Service Exited.")
+		}()
+		log.Println("User Service is running...")
+		return srv.ListenAndServe()
+	})
+
+	eg.Go(func() error {
+		lis, _ := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPC.ExposePort))
+		grpcServer := grpc.NewServer()
+		pb.RegisterUserServiceServer(grpcServer, userServer)
+		go func() {
+			<-ctx.Done()
+			grpcServer.GracefulStop()
+			log.Println("User GRPC Exited.")
+		}()
+		log.Println("User GRPC is running...")
+		return grpcServer.Serve(lis)
+	})
+
+	if err := eg.Wait(); err != nil {
+		log.Println("User服务异常退出:", err)
+	}
 }
