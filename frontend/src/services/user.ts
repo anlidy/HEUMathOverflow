@@ -4,9 +4,8 @@ import type { UploadAvatarRequest, UploadAvatarResponse } from '@/types/user'
 import type { ChangeUserPasswordRequest, ChangeUserPasswordResponse } from '@/types/user'
 export const userApi = {
     login: (data: LoginForm): Promise<LoginResponse> => {
-        return request.post('/api/v1/user/login', data)
+        return request.post<LoginResponse>('/api/v1/user/login', data)
     },
-
 
     register: (data: RegisterForm): Promise<RegisterResponse> => {
         const requestData: RegisterRequest = {
@@ -14,19 +13,18 @@ export const userApi = {
             email: data.email,
             password: data.password,
         }
-        return request.post('/api/v1/user/register', requestData)
+        return request.post<RegisterResponse>('/api/v1/user/register', requestData) 
     },
 
-    
     uploadAvatar: (data: UploadAvatarRequest): Promise<UploadAvatarResponse> => {
-        return request.post('/api/v1/user/avatar', data)
+        return request.post<UploadAvatarResponse>('/api/v1/user/avatar', data)
     },
 
     updateUserInfo: (data: UpdateUserInfoRequest): Promise<UpdateUserInfoResponse> => {
-        return request.patch('/api/v1/user/profile', data)
+        return request.patch<UpdateUserInfoResponse>('/api/v1/user/profile', data)
     },
 
     changeUserPassword: (data: ChangeUserPasswordRequest): Promise<ChangeUserPasswordResponse> => {
-        return request.patch('/api/v1/user/password', data)
+        return request.patch<ChangeUserPasswordResponse>('/api/v1/user/password', data)
     }
 }

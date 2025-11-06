@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
+import type { Response } from '@/types/common'
 
 // 创建 axios 实例
 const request: AxiosInstance = axios.create({
@@ -25,21 +26,41 @@ request.interceptors.request.use(
         return Promise.reject(error)
     },
 )
-
+*/
 // 响应拦截器
 request.interceptors.response.use(
     (response: AxiosResponse) => {
         return response.data
     },
     (error) => {
-        if (error.response?.status === 401) {
-            // token 过期或无效，清除本地存储并跳转到登录页
-            localStorage.removeItem('token')
-            localStorage.removeItem('userInfo')
-            window.location.href = '/login'
-        }
+        
         return Promise.reject(error)
     },
 )
-*/
+
+// 扩展 AxiosInstance 类型，告诉 TypeScript 拦截器改变了返回类型
+declare module 'axios' {
+    export interface AxiosInstance {
+        post<T = any, D = any>(
+            url: string,
+            data?: D,
+            config?: InternalAxiosRequestConfig
+        ): Promise<T>
+        get<T = any>(
+            url: string,
+            config?: InternalAxiosRequestConfig
+        ): Promise<T>
+        patch<T = any, D = any>(
+            url: string,
+            data?: D,
+            config?: InternalAxiosRequestConfig
+        ): Promise<T>
+        delete<T = any>(
+            url: string,
+            config?: InternalAxiosRequestConfig
+        ): Promise<T>
+    }
+}
+
+
 export { request }
