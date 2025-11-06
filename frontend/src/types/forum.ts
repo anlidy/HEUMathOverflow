@@ -1,4 +1,4 @@
-// 论坛相关的类型定义
+import type { Response } from './common'
 
 // 作者信息
 export interface Author {
@@ -122,4 +122,3 @@ export interface GetRepliesParams {
     sortOrder?: 'asc' | 'desc'
     showCertified?: boolean
 }
-

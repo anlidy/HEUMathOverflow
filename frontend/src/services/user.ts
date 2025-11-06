@@ -1,13 +1,13 @@
 import { request } from '@/utils/request'
-import type { LoginForm, LoginResponse, RegisterForm, RegisterResponse, RegisterRequest } from '@/types/auth'
-
+import type { LoginForm, LoginResponse, RegisterForm, RegisterResponse, RegisterRequest, UpdateUserInfoRequest, UpdateUserInfoResponse } from '@/types/user'
+import type { UploadAvatarRequest, UploadAvatarResponse } from '@/types/user'
+import type { ChangeUserPasswordRequest, ChangeUserPasswordResponse } from '@/types/user'
 export const userApi = {
-    // 登录接口
     login: (data: LoginForm): Promise<LoginResponse> => {
         return request.post('/api/v1/user/login', data)
     },
 
-    // 注册接口
+
     register: (data: RegisterForm): Promise<RegisterResponse> => {
         const requestData: RegisterRequest = {
             username: data.username,
@@ -16,4 +16,17 @@ export const userApi = {
         }
         return request.post('/api/v1/user/register', requestData)
     },
+
+    
+    uploadAvatar: (data: UploadAvatarRequest): Promise<UploadAvatarResponse> => {
+        return request.post('/api/v1/user/avatar', data)
+    },
+
+    updateUserInfo: (data: UpdateUserInfoRequest): Promise<UpdateUserInfoResponse> => {
+        return request.patch('/api/v1/user/profile', data)
+    },
+
+    changeUserPassword: (data: ChangeUserPasswordRequest): Promise<ChangeUserPasswordResponse> => {
+        return request.patch('/api/v1/user/password', data)
+    }
 }

@@ -5,6 +5,7 @@ import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'a
 const request: AxiosInstance = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL as string,
     timeout: 10000,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
     },
