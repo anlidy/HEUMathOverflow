@@ -39,25 +39,6 @@ export function useAppMessage() {
     }
 
     /**
-     * 处理AppError，根据错误严重程度自动选择提示方式
-     */
-    const handleError = (error: AppError) => {
-        if (shouldShowDialog(error)) {
-            // 重要错误使用弹窗
-            dialog.error({
-                title: '错误',
-                content: error.message,
-                positiveText: '确定',
-                onPositiveClick: () => {},
-            })
-        } else if (shouldShowMessage(error)) {
-            // 普通错误使用消息提示
-            showError(error.message)
-        }
-        // SILENT错误不显示任何提示
-    }
-
-    /**
      * 显示错误弹窗（用于重要错误）
      */
     const showErrorDialog = (title: string, content: string) => {
@@ -72,11 +53,7 @@ export function useAppMessage() {
     /**
      * 显示确认对话框
      */
-    const showConfirmDialog = (
-        title: string,
-        content: string,
-        onConfirm: () => void | Promise<void>
-    ) => {
+    const showConfirmDialog = (title: string, content: string, onConfirm: () => void | Promise<void>) => {
         dialog.warning({
             title,
             content,
@@ -88,14 +65,29 @@ export function useAppMessage() {
         })
     }
 
+    /**
+     * 处理AppError，根据错误严重程度自动选择提示方式
+     */
+    const handleError = (error: AppError) => {
+        if (shouldShowDialog(error)) {
+            // 重要错误使用弹窗
+            showErrorDialog('错误', error.message)
+        } else if (shouldShowMessage(error)) {
+            // 普通错误使用消息提示
+            showError(error.message)
+        } else {
+            // Silent错误不显示任何提示
+            console.log(error.message)
+        }
+    }
+
     return {
         showSuccess,
         showWarning,
         showInfo,
         showError,
-        handleError,
         showErrorDialog,
         showConfirmDialog,
+        handleError,
     }
 }
-

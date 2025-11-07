@@ -12,26 +12,11 @@ const request: AxiosInstance = axios.create({
         'Content-Type': 'application/json',
     },
 })
-/*
-// 请求拦截器
-request.interceptors.request.use(
-    (config: InternalAxiosRequestConfig) => {
-        // 添加 token 到 header
-        const token = localStorage.getItem('token')
-        if (token && config.headers) {
-            config.headers.Authorization = `Bearer ${token}`
-        }
-        return config
-    },
-    (error) => {
-        return Promise.reject(error)
-    },
-)
-*/
+
 // 响应拦截器
 request.interceptors.response.use(
     (response: AxiosResponse<Response<any>>) => {
-        const { code, message, data } = response.data
+        const { code, message } = response.data
         
         // 业务错误处理：code !== 200 表示业务逻辑错误
         if (code !== 200) {

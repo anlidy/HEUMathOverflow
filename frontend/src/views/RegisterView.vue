@@ -4,10 +4,11 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/useUserStore'
 import type { FormInst, FormRules } from 'naive-ui'
 import { PersonOutline, LockClosedOutline, MailOutline } from '@vicons/ionicons5'
-
+import { useAppMessage } from '@/composables/useMessage'
+import type { AppError } from '@/utils/errorHandler'
 const router = useRouter()
 const userStore = useUserStore()
-
+const { showSuccess, handleError, showError } = useAppMessage()
 // 表单引用和状态
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
@@ -57,13 +58,15 @@ const handleSubmit = async (e: Event) => {
         // 设置加载状态
         loading.value = true
         // 调用注册动作
-        const success = await userStore.register(formData)
-        if (success) {
-            console.log('注册成功')
-        }
-    } catch (errors) {
+        await userStore.register(formData)
+        showSuccess('注册成功！')
+        router.push('/')
+    } catch (error) {
         // 表单验证失败，Naive UI 会自动显示错误信息
-        console.log('表单验证失败:', errors)
+        if (error && typeof error === 'object' && 'type' in error) {
+            // AppError错误，使用统一错误处理
+            handleError(error as AppError)
+        }
     } finally {
         loading.value = false
     }
