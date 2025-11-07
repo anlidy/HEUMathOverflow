@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, onActivated } from 'vue'
+import { ref, reactive, onUnmounted, onActivated } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useUserStore } from '@/stores/useUserStore'
 import type { FormInst, FormRules } from 'naive-ui'
 import { PersonOutline, LockClosedOutline } from '@vicons/ionicons5'
+import { useAppMessage } from '@/composables/useMessage'
+import type { AppError } from '@/utils/errorHandler'
 
 const userStore = useUserStore()
+const router = useRouter()
+const { handleError, showSuccess } = useAppMessage()
 
 // 表单引用和状态
 const formRef = ref<FormInst | null>(null)
@@ -34,14 +38,23 @@ const rules: FormRules = {
 const handleSubmit = async (e: Event) => {
     e.preventDefault()
     try {
+        // 表单验证
         await formRef.value?.validate()
         loading.value = true
-        const success = await userStore.login(formData)
-        if (success) {
-            console.log('登录成功')
+        
+        // 调用登录接口
+        await userStore.login(formData)
+        
+        // 登录成功，显示成功消息并跳转
+        showSuccess('登录成功！')
+        router.push('/')
+    } catch (error) {
+        // 如果是表单验证错误，Naive UI会自动显示错误信息，不需要额外处理
+        if (error && typeof error === 'object' && 'type' in error) {
+            // AppError错误，使用统一错误处理
+            handleError(error as AppError)
         }
-    } catch (errors) {
-        console.log('表单验证失败:', errors)
+        // 其他错误（如表单验证错误）静默处理，因为Naive UI会自动显示
     } finally {
         loading.value = false
     }

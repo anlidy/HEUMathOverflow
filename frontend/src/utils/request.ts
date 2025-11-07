@@ -1,6 +1,7 @@
 import axios from 'axios'
-import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
+import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
 import type { Response } from '@/types/common'
+import { createErrorFromAxios, createBusinessError, ErrorSeverity } from './errorHandler'
 
 // 创建 axios 实例
 const request: AxiosInstance = axios.create({
@@ -29,12 +30,32 @@ request.interceptors.request.use(
 */
 // 响应拦截器
 request.interceptors.response.use(
-    (response: AxiosResponse) => {
-        return response.data
-    },
-    (error) => {
+    (response: AxiosResponse<Response<any>>) => {
+        const { code, message, data } = response.data
         
-        return Promise.reject(error)
+        // 业务错误处理：code !== 200 表示业务逻辑错误
+        if (code !== 200) {
+            // 根据业务错误码确定严重程度
+            // 可以根据实际业务需求调整
+            const severity = code >= 400 && code < 500 
+                ? ErrorSeverity.NORMAL 
+                : ErrorSeverity.CRITICAL
+            
+            const businessError = createBusinessError(
+                message || '请求失败',
+                code,
+                severity
+            )
+            return Promise.reject(businessError)
+        }
+        
+        // 成功响应，返回数据（类型断言，因为我们已经通过类型声明修改了返回类型）
+        return response.data as any
+    },
+    (error: AxiosError<any>) => {
+        // HTTP错误处理：统一转换为AppError
+        const appError = createErrorFromAxios(error)
+        return Promise.reject(appError)
     },
 )
 
