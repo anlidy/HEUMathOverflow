@@ -45,8 +45,8 @@ func (r *fileRepo) PromoteFile(ctx context.Context, tmpURL, bucket string, hostI
 	// 1. 提取对象名，得到 tmp/17302800000.jpg
 	tmpName := strings.TrimPrefix(tmpURL, fmt.Sprintf("api/v1/%s/", bucket))
 
-	// 2. 新路径：forum/posts/{hostID}/{filename}
-	newName := fmt.Sprintf("posts/%d/%s", hostID, filepath.Base(tmpName))
+	// 2. 新路径：forum/{bucket}/{hostID}/{filename}
+	newName := fmt.Sprintf("%s/%d/%s", bucket, hostID, filepath.Base(tmpName))
 
 	// 3. 复制对象
 	src := minio.CopySrcOptions{
