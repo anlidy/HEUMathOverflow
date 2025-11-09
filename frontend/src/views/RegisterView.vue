@@ -42,7 +42,7 @@ const rules: FormRules = {
         { required: true, message: '请输入密码', trigger: ['blur', 'input'] },
         { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: ['blur', 'input'] },
     ],
-    confirmPassword: [
+    confirm_password: [
         { required: true, message: '请再次输入密码', trigger: ['blur', 'input'] },
         { validator: validatePasswordSame, trigger: ['blur', 'input'] },
     ],
@@ -105,7 +105,7 @@ const handleSubmit = async (e: Event) => {
                         </template>
                     </n-input>
                 </n-form-item>
-                <n-form-item path="confirmPassword" label="确认密码" class="[&_.n-form-item-label]:font-medium">
+                <n-form-item path="confirm_password" label="确认密码" class="[&_.n-form-item-label]:font-medium">
                     <n-input
                         v-model:value="formData.confirm_password"
                         type="password"
