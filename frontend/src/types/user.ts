@@ -37,7 +37,7 @@ export interface RegisterRequest {
 export interface RegisterResponse extends Response<{ user_info: UserInfo }> {}
 
 export interface UploadAvatarRequest {
-    avatar: File
+    file: File
 }
 
 export interface UploadAvatarResponse extends Response<{ avatar_url: string }> {}

@@ -19,7 +19,7 @@ export const useUserStore = defineStore('user', () => {
     }
 
     const uploadAvatar = async (avatarFile: File) => {
-        const response = await api.user.uploadAvatar({ avatar: avatarFile })
+        const response = await api.user.uploadAvatar({ file: avatarFile })
         if (userInfo.value) {
             userInfo.value.avatar_url = response.data.avatar_url
         }

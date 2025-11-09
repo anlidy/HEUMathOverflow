@@ -9,10 +9,10 @@ defineProps<{
 
 <template>
     <div :class="['flex h-screen w-screen flex-col', containerClass]">
-        <div :class="['flex items-center justify-center', headerClass]">
+        <div :class="['flex items-center justify-start', headerClass]">
             <slot name="header" />
         </div>
-        <div :class="['flex flex-1', mainClass]">
+        <div :class="['flex flex-1 overflow-y-auto overflow-x-hidden', mainClass]">
             <div class="hidden md:block md:w-1/6">
                 <slot name="sidebar" />
             </div>
@@ -23,7 +23,7 @@ defineProps<{
                 <slot name="right-sidebar" />
             </div>
         </div>
-        <div :class="['flex items-center justify-center', footerClass]">
+        <div :class="['flex items-center justify-start', footerClass]">
             <slot name="footer" />
         </div>
     </div>

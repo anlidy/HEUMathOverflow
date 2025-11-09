@@ -17,7 +17,9 @@ export const userApi = {
     },
 
     uploadAvatar: (data: UploadAvatarRequest): Promise<UploadAvatarResponse> => {
-        return request.post<UploadAvatarResponse>('/api/v1/user/avatar', data)
+        const formData = new FormData();
+        formData.append('file', data.file)
+        return request.post<UploadAvatarResponse>('/api/v1/user/avatar', formData)
     },
 
     updateUserInfo: (data: UpdateUserInfoRequest): Promise<UpdateUserInfoResponse> => {

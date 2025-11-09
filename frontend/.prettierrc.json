@@ -4,7 +4,7 @@
     "semi": false,
     "singleQuote": true,
     "singleAttributePerLine": false,
-    "printWidth": 150,
+    "printWidth": 100,
     "plugins": ["prettier-plugin-tailwindcss"],
     "tailwindStylesheet": "./src/assets/styles/main.css",
     "bracketSameLine": true,
