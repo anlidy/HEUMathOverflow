@@ -29,12 +29,11 @@ type Reply struct {
 
 // mongo集合
 type ReplyContent struct {
-	ID            primitive.ObjectID `bson:"_id,omitempty"`
-	ReplyID       int64              `bson:"reply_id"`
-	ParentReplyID *int64             `bson:"parent_reply_id,omitempty"`
-	Content       string             `bson:"content"`
-	Voice         string             `bson:"voice"` //存储语音url
-	VoiceText     string             `bson:"voice_text"`
-	Images        []string           `bson:"images"`
-	AIAnswered    bool               `bson:"ai_answered"`
+	ID         primitive.ObjectID `bson:"_id,omitempty"`
+	ReplyID    int64              `bson:"reply_id"`
+	Content    string             `bson:"content"`
+	Voice      string             `bson:"voice"` //存储语音url
+	VoiceText  string             `bson:"voice_text,omitempty"`
+	Images     []string           `bson:"images"`
+	AIAnswered bool               `bson:"ai_answered"`
 }

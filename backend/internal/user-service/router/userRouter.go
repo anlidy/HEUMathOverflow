@@ -25,8 +25,8 @@ func SetupRouter(rdb *redis.Client, uc controller.UserController) *gin.Engine {
 	authUser := user.Group("")
 	authUser.Use(middleware.AuthMiddleware(rdb))
 	authUser.POST("/avatar", uc.UserUploadAvatar)
-	authUser.PATCH("/profile")
-	authUser.PATCH("/password")
+	authUser.PATCH("/profile", uc.UserUploadProfie)
+	authUser.PATCH("/password", uc.UserUpdatePassword)
 
 	return r
 }

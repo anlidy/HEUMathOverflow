@@ -17,7 +17,7 @@ type PostRepo interface {
 	FindPostByID(postID int64) (model.Post, error)
 	UpdateColumn(postID int64, column string, value any) (bool, error)
 	UpdatePost(post *model.Post) (bool, error)
-	DeletePost(postID int64) (bool, error)
+	DeletePost(postID int64) error
 	// mongo
 	CreateOnePost(ctx context.Context, post *model.PostContent) (primitive.ObjectID, error)
 	FindOnePost(ctx context.Context, filter bson.M) (*model.PostContent, error)
@@ -58,14 +58,16 @@ func (r *postRepo) UpdateColumn(postID int64, column string, value any) (bool, e
 
 // 更新一个帖子
 func (r *postRepo) UpdatePost(post *model.Post) (bool, error) {
-	err := r.pg.Model(&model.Post{}).Where("id = ?", post.ID).Updates(post).Error
-	return err == nil, err
+	result := r.pg.Model(&model.Post{}).Where("id = ?", post.ID).Updates(post)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // 删除一个帖子
-func (r *postRepo) DeletePost(postID int64) (bool, error) {
-	err := r.pg.Where("id = ?", postID).Delete(&model.Post{}).Error
-	return err == nil, err
+func (r *postRepo) DeletePost(postID int64) error {
+	return r.pg.Where("id = ?", postID).Delete(&model.Post{}).Error
 }
 
 // / Mongo接口
