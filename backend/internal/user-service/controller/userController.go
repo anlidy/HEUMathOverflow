@@ -150,3 +150,45 @@ func (uc *UserController) UserDownloadAvatar(c *gin.Context) {
 		return
 	}
 }
+
+// 修改用户信息
+func (uc *UserController) UserUploadProfie(c *gin.Context) {
+	var ctx = c.Request.Context()
+	var userID = c.GetInt64("userID")
+	var req request.UserProfie
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "数据格式校验不通过", "code": http.StatusBadRequest})
+		return
+	}
+	err := uc.userService.UserUpdateProfie(ctx, userID, req)
+	switch err {
+	case syserror.NotFoundError:
+		c.JSON(http.StatusNotFound, gin.H{"message": "找不到该用户", "code": http.StatusNotFound})
+		return
+	case syserror.InternalError:
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "更新失败", "code": http.StatusInternalServerError})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "用户信息更新成功", "code": http.StatusOK})
+}
+
+// 更新用户密码
+func (uc *UserController) UserUpdatePassword(c *gin.Context) {
+	var ctx = c.Request.Context()
+	var userID = c.GetInt64("userID")
+	var req request.UserPassword
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "数据格式校验不通过", "code": http.StatusBadRequest})
+		return
+	}
+	err := uc.userService.UserUpdatePassword(ctx, userID, req)
+	switch err {
+	case syserror.NotFoundError:
+		c.JSON(http.StatusNotFound, gin.H{"message": "找不到该用户", "code": http.StatusNotFound})
+		return
+	case syserror.InternalError:
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "密码修改失败", "code": http.StatusInternalServerError})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "密码修改成功", "code": http.StatusOK})
+}

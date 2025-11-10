@@ -10,4 +10,5 @@ const (
 	DuplicateError
 	PermissionDeniedError
 	NetworkError
+	ResourceExpiredError
 )

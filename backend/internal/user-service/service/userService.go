@@ -24,6 +24,9 @@ type UserService interface {
 	UserLogin(ctx context.Context, req request.UserLogin) (*model.Session, *response.UserInfo, syserror.Error)
 	UserUploadAvatar(ctx context.Context, userID int64, file common.File) (string, syserror.Error)
 	UserDownloadAvatar(ctx context.Context, filename string) (*common.File, syserror.Error)
+	UserUpdateProfie(ctx context.Context, userID int64, req request.UserProfie) syserror.Error
+	UserUpdatePassword(ctx context.Context, userID int64, req request.UserPassword) syserror.Error
+	UpdateUserRole(ctx context.Context, opID int64, req request.UserRole) syserror.Error
 }
 
 // 用户服务类型

@@ -12,7 +12,6 @@ import (
 	userpb "MathOverflow/proto/user"
 	"context"
 	"log"
-	"time"
 
 	"github.com/jinzhu/copier"
 	"github.com/minio/minio-go/v7"
@@ -24,33 +23,31 @@ import (
 	"gorm.io/gorm"
 )
 
-type PostService interface {
+type ReplyService interface {
 	UploadFile(ctx context.Context, file common.File) (string, syserror.Error)
 	DownloadFile(ctx context.Context, filename string) (*common.File, syserror.Error)
-	CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error)
-	GetOnePost(ctx context.Context, userID, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
 }
 
-type postService struct {
+type replyService struct {
 	cfg        config.Config
-	postRepo   repository.PostRepo
+	replyRepo  repository.ReplyRepo
 	fileRepo   repository.FileRepo
 	userClient userpb.UserServiceClient
 	servName   string
 }
 
-func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo repository.FileRepo, userConn *grpc.ClientConn) PostService {
-	return &postService{
+func NewReplyService(cfg config.Config, replyRepo repository.ReplyRepo, fileRepo repository.FileRepo, userConn *grpc.ClientConn) ReplyService {
+	return &replyService{
 		cfg:        cfg,
-		postRepo:   postRepo,
+		replyRepo:  replyRepo,
 		fileRepo:   fileRepo,
 		userClient: userpb.NewUserServiceClient(userConn),
-		servName:   "Post-Service",
+		servName:   "Reply-Service",
 	}
 }
 
 // 上传文件,返回临时链接
-func (s *postService) UploadFile(ctx context.Context, file common.File) (string, syserror.Error) {
+func (s *replyService) UploadFile(ctx context.Context, file common.File) (string, syserror.Error) {
 	// 将文件存入minio
 	url, err := s.fileRepo.UploadFile(ctx, s.cfg.Minio.Bucket, file)
 	if err != nil {
@@ -61,7 +58,7 @@ func (s *postService) UploadFile(ctx context.Context, file common.File) (string,
 }
 
 // 下载文件
-func (s *postService) DownloadFile(ctx context.Context, filename string) (*common.File, syserror.Error) {
+func (s *replyService) DownloadFile(ctx context.Context, filename string) (*common.File, syserror.Error) {
 	// 检查文件是否存在
 	exists, err := s.fileRepo.FileExists(ctx, filename)
 	if err != nil {
@@ -77,15 +74,15 @@ func (s *postService) DownloadFile(ctx context.Context, filename string) (*commo
 	return file, syserror.NoError
 }
 
-// 创建新帖子
-func (s *postService) CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error) {
-	// 生成帖子id
-	var postID = utils.GenerateSnowflakeID()
+// 创建新回贴
+func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req request.ReplyCreate) (int64, syserror.Error) {
+	// 生成回帖id
+	var replyID = utils.GenerateSnowflakeID()
 
 	// 将临时url提升为正式url
 	var images = []string{}
 	for _, tmpUrl := range req.Images {
-		newUrl, err := s.fileRepo.PromoteFile(ctx, tmpUrl, s.cfg.Minio.Bucket, postID)
+		newUrl, err := s.fileRepo.PromoteFile(ctx, tmpUrl, s.cfg.Minio.Bucket, replyID)
 		if err != nil {
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return -1, syserror.ResourceExpiredError
@@ -96,29 +93,40 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		images = append(images, newUrl)
 	}
 
-	// 创建mongo文档
-	var postContent = &model.PostContent{
-		PostID:    postID,
-		Content:   req.Content,
-		Images:    images,
-		CreatedAt: time.Now(),
+	voice, err := s.fileRepo.PromoteFile(ctx, req.Voice, s.cfg.Minio.Bucket, replyID)
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return -1, syserror.ResourceExpiredError
+		}
+		log.Printf("[%s] %v\n", s.servName, err)
+		return -1, syserror.InternalError
 	}
-	docID, err := s.postRepo.CreateOnePost(ctx, postContent)
+
+	// 创建mongo文档
+	var replyContent = &model.ReplyContent{
+		ReplyID:    replyID,
+		Content:    req.Content,
+		Voice:      voice,
+		Images:     images,
+		AIAnswered: false,
+	}
+	docID, err := s.replyRepo.MCreateReply(ctx, replyContent)
 	if err != nil {
 		log.Printf("[%s] %v\n", s.servName, err)
 		return -1, syserror.InternalError
 	}
 
-	// 创建帖子元数据
-	var post = &model.Post{
-		ID:       postID,
-		AuthorID: userID,
-		Title:    req.Title,
-		Tags:     req.Tags,
-		Status:   model.Unanswered,
-		DocID:    utils.ObjectIDToString(docID),
+	// 创建回帖元数据
+	var reply = &model.Reply{
+		ID:            replyID,
+		PostID:        req.PostID,
+		ReplierID:     userID,
+		ParentReplyID: req.ParentReplyID,
+		DocID:         utils.ObjectIDToString(docID),
+		Status:        model.NotSelected,
 	}
-	err = s.postRepo.CreatePost(post)
+
+	err = s.replyRepo.CreateReply(reply)
 	if err != nil {
 		if err == gorm.ErrDuplicatedKey {
 			return -1, syserror.DuplicateError
@@ -126,11 +134,11 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		log.Printf("[%s] %v\n", s.servName, err)
 		return -1, syserror.InternalError
 	}
-	return postID, syserror.NoError
+	return replyID, syserror.NoError
 }
 
-// 获取一条帖子
-func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
+// 获取一条回帖
+func (s *replyService) GetOneReply(ctx context.Context, userID, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
 	// 调用 UserService
 	resp, err := s.userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
 	if err != nil {
@@ -154,8 +162,8 @@ func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*re
 		Role:      int(resp.Role),
 		AvatarUrl: resp.AvatarUrl,
 	}
-	// 查询帖子元信息
-	post, err := s.postRepo.FindPostByID(postID)
+	// 查询回帖元信息
+	reply, err := s.replyRepo.FindReplyByID(replyID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, syserror.NotFoundError
@@ -163,8 +171,8 @@ func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*re
 		log.Printf("[%s] %v\n", s.servName, err)
 		return nil, nil, syserror.InternalError
 	}
-	// 查询帖子正文内容
-	postContent, err := s.postRepo.FindOnePost(ctx, bson.M{"post_id": postID})
+	// 查询回帖正文内容
+	replyContent, err := s.replyRepo.MFindReply(ctx, bson.M{"reply_id": replyID})
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil, syserror.NotFoundError
@@ -173,10 +181,9 @@ func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*re
 		return nil, nil, syserror.InternalError
 	}
 	// 聚合返回查询结果
-	postData := &response.PostData{}
-	copier.Copy(postData, &post)
-	postData.Content = postContent.Content
-	postData.Images = postContent.Images
+	replyData := &response.ReplyData{}
+	copier.Copy(replyData, &reply)
+	copier.Copy(replyData, replyContent)
 
-	return userInfo, postData, syserror.NoError
+	return userInfo, replyData, syserror.NoError
 }
