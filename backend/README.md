@@ -34,30 +34,174 @@
 
 ### Docker 部署
 
-本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了一个示例 `docker-compose.yml`，用于本地一键启动 Postgres、Redis、MinIO 以及三个服务。
+本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了 Docker Compose 配置文件，用于一键启动 Postgres、Redis、MinIO、MongoDB 以及三个服务。
 
-快速开始（任意目录均可，相对位置调用脚本即可）：
+#### 前置要求
 
-```bash
-# 脚本部署
-# Windows把脚本换成run.cmd
-# 在任何目录下可用
-./bin/run up --build -d
+- Docker Desktop（Windows/Mac）或 Docker Engine（Linux）
+- Docker Compose v2（通常包含在 Docker Desktop 中）
 
-# 查看docker容器运行状态
+#### 快速开始
+
+**方式一：使用部署脚本（推荐）**
+
+**Windows:**
+
+**方式A：使用批处理脚本**
+```cmd
+# 进入 backend 目录
+cd backend
+
+# 启动所有服务（构建镜像并后台运行）
+bin\run.cmd up --build -d
+
+# 查看容器状态
 docker ps
+
+# 查看服务日志
+docker compose -p backend logs -f user-service
+
+# 停止并清理
+bin\run.cmd down
 ```
 
-服务端口（默认）：
-- user-service: 8081
-- forum-service: 8082
-- audit-service: 8083
+**方式B：使用 Python 脚本（推荐，更可靠）**
+```cmd
+# 进入 backend 目录
+cd backend
 
-注意：源码中的配置文件已调整为在容器网络中使用服务名（如 `postgres`, `minio`, `redis`）作为 host；如果你需要在宿主机上运行服务并连接宿主机上的数据库，请把 `/cmd/**/*.yaml` 中的 host 改回 `localhost` 或使用适当的环境配置/挂载覆盖。
+# 启动所有服务（构建镜像并后台运行）
+python bin\run.py up --build -d
 
-停止容器并清理：
+# 查看容器状态
+docker ps
+
+# 停止并清理
+python bin\run.py down
+```
+
+**注意**：如果批处理脚本 `run.cmd` 出现问题，建议使用 Python 脚本 `run.py`。
+
+**Linux/Mac:**
+```bash
+# 进入 backend 目录
+cd backend
+
+# 启动所有服务（构建镜像并后台运行）
+./bin/run up --build -d
+
+# 查看容器状态
+docker ps
+
+# 查看服务日志
+docker compose -p backend logs -f user-service
+
+# 停止并清理
+./bin/run down
+```
+
+**方式二：直接使用 Docker Compose**
 
 ```bash
-# 停止服务容器, 自动删除容器和.env
-docker compose -p backend down
+# 进入 docker 目录
+cd backend/docker
+
+# 1. 检查并创建 .env 文件（如果不存在，需要手动创建或从 .env.example 复制）
+# Windows: copy .env.example .env
+# Linux/Mac: cp .env.example .env
+
+# 2. 启动基础设施服务（PostgreSQL, Redis, MinIO, MongoDB）
+docker compose -p backend -f docker-compose.yml up -d
+
+# 3. 启动应用服务（user-service, forum-service, audit-service）
+docker compose -p backend -f docker-compose.service.yml up --build -d
+
+# 4. 查看所有容器状态
+docker ps
+
+# 5. 停止所有服务
+docker compose -p backend -f docker-compose.service.yml down
+docker compose -p backend -f docker-compose.yml down
+```
+
+#### 服务端口
+
+- **user-service**: 8081
+- **forum-service**: 8082
+- **audit-service**: 8083
+- **MinIO Console**: 9001（管理界面）
+- **PostgreSQL**: 5432（默认不暴露，仅在容器网络内访问）
+- **Redis**: 6379（默认不暴露，仅在容器网络内访问）
+- **MongoDB**: 27017（默认不暴露，仅在容器网络内访问）
+
+#### 常用命令
+
+```bash
+# 查看运行中的容器
+docker ps
+
+# 查看所有容器（包括已停止的）
+docker ps -a
+
+# 查看服务日志
+docker compose -p backend logs [service-name]
+
+# 实时查看日志
+docker compose -p backend logs -f [service-name]
+
+# 重启特定服务
+docker compose -p backend restart user-service
+
+# 进入容器
+docker exec -it backend-user-service-1 sh
+
+# 查看网络
+docker network ls
+docker network inspect backend_default
+
+# 清理未使用的镜像和容器
+docker system prune -a
+```
+
+#### 环境配置
+
+部署脚本会自动检查 `backend/docker/.env` 文件是否存在，如果不存在会尝试从 `.env.example` 复制。请确保 `.env` 文件中配置了正确的环境变量：
+
+- `POSTGRES_USER` - PostgreSQL 用户名
+- `POSTGRES_PASSWORD` - PostgreSQL 密码
+- `POSTGRES_DB` - PostgreSQL 数据库名
+- `MINIO_ROOT_USER` - MinIO 根用户
+- `MINIO_ROOT_PASSWORD` - MinIO 根密码
+- `MONGO_USER` - MongoDB 用户名
+- `MONGO_PASSWORD` - MongoDB 密码
+
+#### 注意事项
+
+1. **网络配置**：所有服务在 `backend_default` Docker 网络中运行，使用服务名（如 `postgres`, `minio`, `redis`）作为主机名进行通信
+2. **数据持久化**：数据存储在 `backend/docker/data/` 目录下，包括：
+   - PostgreSQL 数据：`data/Postgre/`
+   - Redis 数据：`data/Redis/`
+   - MinIO 数据：`data/Minio/`
+   - MongoDB 数据：`data/Mongo/`
+3. **配置文件**：服务配置文件位于 `cmd/*/` 目录下的 yaml 文件，已配置为使用容器网络中的服务名
+4. **宿主机运行**：如果需要在宿主机上运行服务并连接容器中的数据库，需要修改配置文件中的 host 为 `localhost` 并暴露相应端口
+
+#### 故障排查
+
+```bash
+# 检查容器日志
+docker compose -p backend logs user-service
+
+# 检查容器状态
+docker compose -p backend ps
+
+# 检查网络连接
+docker network inspect backend_default
+
+# 重启所有服务
+docker compose -p backend restart
+
+# 完全清理并重新部署
+bin\run.cmd down
+bin\run.cmd up --build -d
 ```
