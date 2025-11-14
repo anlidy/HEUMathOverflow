@@ -3,12 +3,10 @@ import { useUserStore } from '@/stores/useUserStore'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { PersonOutline, SettingsOutline, LogOutOutline } from '@vicons/ionicons5'
+import Avatar from '@/components/display/Avatar.vue'
 import { getAvatarUrl } from '@/utils/avatar'
 
 const props = defineProps<{
-    width?: string
-    height?: string
-    containerClass?: string
     avatarUrl?: string
 }>()
 
@@ -25,16 +23,6 @@ const avatarSrc = computed(() => {
 
 const showPanel = ref(false)
 const panelRef = ref<HTMLDivElement | null>(null)
-const containerStyle = computed(() => {
-    const style: Record<string, string> = {}
-    if (props.width) {
-        style.width = `${props.width}px`
-    }
-    if (props.height) {
-        style.height = `${props.height}px`
-    }
-    return style
-})
 
 const togglePanel = () => {
     showPanel.value = !showPanel.value
@@ -62,12 +50,7 @@ onUnmounted(() => {
 
 <template>
     <div class="relative">
-        <div @click.stop="togglePanel" :style="containerStyle" :class="[
-        'cursor-pointer m-1 overflow-hidden rounded-full border-2 border-transparent transition-all duration-300 hover:border-gray-300',
-        containerClass,
-    ]">
-        <img :src="avatarSrc" class="h-full w-full rounded-full object-cover" />
-    </div>
+        <Avatar :avatarUrl="avatarSrc" :clickable="true" @click.stop="togglePanel" />
     <Transition
         enter-active-class="transition ease-out duration-100"
         enter-from-class="transform opacity-0 scale-95"

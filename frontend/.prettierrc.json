@@ -4,7 +4,7 @@
     "semi": false,
     "singleQuote": true,
     "singleAttributePerLine": false,
-    "printWidth": 100,
+    "printWidth": 120,
     "plugins": ["prettier-plugin-tailwindcss"],
     "tailwindStylesheet": "./src/assets/styles/main.css",
     "bracketSameLine": true,
@@ -16,7 +16,7 @@
                 "parser": "vue",
                 "singleAttributePerLine": false,
                 "bracketSameLine": true,
-                "printWidth": 150
+                "printWidth": 120
             }
         },
         {

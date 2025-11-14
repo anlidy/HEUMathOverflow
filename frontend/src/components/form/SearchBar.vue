@@ -47,6 +47,7 @@ const styles = computed(() => {
         borderColor: props.borderColor,
         color: props.textColor,
         borderRadius: isMinimized.value ? props.minimizedBorderRadius : props.borderRadius,
+        borderWidth: isMinimized.value ? '0px' : '1px',
     }
 })
 
