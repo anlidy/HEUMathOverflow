@@ -17,7 +17,8 @@ import type {
 export const forumApi = {
     // 获取帖子列表
     getPosts: (params?: GetPostsParams): Promise<GetPostsResponse> => {
-        return request.get('/api/v1/forum/posts', { params })
+        //
+        return request.get('/api/v1/forum/posts')
     },
 
     // 获取帖子详情
@@ -42,7 +43,8 @@ export const forumApi = {
 
     // 获取回复列表
     getReplies: (postId: number, params?: any): Promise<GetRepliesResponse> => {
-        return request.get(`/api/v1/forum/posts/${postId}/replies`, { params })
+        //
+        return request.get(`/api/v1/forum/posts/${postId}/replies`)
     },
 
     // 创建回复
@@ -66,7 +68,8 @@ export const forumApi = {
 
     // 获取收藏列表
     getBookmarks: (params?: { page?: number; limit?: number }): Promise<GetBookmarksResponse> => {
-        return request.get('/api/v1/forum/bookmarks', { params })
+        //
+        return request.get('/api/v1/forum/bookmarks')
     },
 
     // 获取所有标签
@@ -74,4 +77,3 @@ export const forumApi = {
         return request.get('/api/v1/forum/tags')
     },
 }
-

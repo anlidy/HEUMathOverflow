@@ -1,20 +1,24 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import Logo from '@/features/header/Logo.vue'
 import MainNav from '@/features/header/MainNav.vue'
 import UserMenu from '@/features/user/UserMenu.vue'
 import SearchBar from '@/components/form/SearchBar.vue'
-import type { Post } from '@/types/forum'
-import DiscussionPost from '@/features/discussion/DiscussionPost.vue'
-const items = ref<Post[]>(
-    Array.from({ length: 10 }, (_, index) => {
-        return {
-            id: index,
-            title: `Post ${index}`,
-        } as Post
-    }),
-)
-const itemHeight = 200
+import PostList from '@/features/discussion/PostList.vue'
+import TopicBar from '@/components/common/TopicBar.vue'
+import type { TopicItem } from '@/types/common'
+import { ref } from 'vue'
+const topics = ref<TopicItem[]>([
+    { id: 0, name: '推荐' },
+    { id: 1, name: '最热' },
+    { id: 2, name: '最新' },
+])
+
+const selectedTopic = ref<TopicItem>({ id: 0, name: '推荐' })
+
+const handleTopicSelect = (topic: TopicItem) => {
+    // TODO: 获取帖子列表
+    selectedTopic.value = topic
+}
 </script>
 
 <template>
@@ -32,22 +36,14 @@ const itemHeight = 200
             </div>
         </header>
         <main class="mx-auto mt-8 flex w-full flex-1">
-            <section class="mx-auto flex max-w-[1000px] flex-1 flex-col items-center p-2">
-                <div class="flex h-[32px] w-full items-center gap-4 px-4">
-                    <button
-                        class="flex h-[32px] cursor-pointer items-center justify-center rounded-md px-2 py-1 text-sm text-gray-500 hover:bg-cyan-100 active:bg-cyan-200">
-                        推荐
-                    </button>
-                    <button
-                        class="flex h-[32px] cursor-pointer items-center justify-center rounded-md px-2 py-1 text-sm text-gray-500 hover:bg-cyan-100 active:bg-cyan-200">
-                        精华
-                    </button>
-                </div>
-                <div class="mt-4 flex w-full flex-col gap-4 p-4">
-                    <DiscussionPost
-                        v-for="item in items"
-                        :key="item.id"
-                        class="h-[150px] w-full rounded-md border border-gray-200 p-2" />
+            <section class="flex w-full flex-1 flex-col items-center p-2">
+                <div class="mx-auto max-w-[800px]">
+                    <TopicBar
+                        :topics="topics"
+                        :selectedTopic="selectedTopic"
+                        @select="handleTopicSelect"
+                        class="mb-4" />
+                    <PostList />
                 </div>
             </section>
             <section class="ml-10 flex w-[300px] flex-col items-center p-2"></section>

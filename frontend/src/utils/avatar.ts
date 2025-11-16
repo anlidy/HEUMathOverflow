@@ -7,7 +7,7 @@
  */
 export function getAvatarUrl(avatarUrl: string | undefined | null, forceRefresh = false): string {
     if (!avatarUrl) {
-        return '/src/assets/images/avatar-0.png'
+        return '/src/assets/images/default-avatar.png'
     }
 
     let finalUrl = avatarUrl
@@ -33,4 +33,3 @@ export function getAvatarUrl(avatarUrl: string | undefined | null, forceRefresh 
 
     return finalUrl
 }
-
