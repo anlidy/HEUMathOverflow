@@ -1,34 +1,40 @@
-# Parameterized Dockerfile for building any service in this repo.
-# Usage (example):
+# syntax directive enables BuildKit features like RUN --mount
+# usage example (from repo root):
 # DOCKER_BUILDKIT=1 docker build \
-#   --build-arg SERVICE_DIR=cmd/forum-service \
-#   --build-arg BINARY_NAME=forum-service \
-#   --build-arg CONFIG_PATH=cmd/forum-service/forum.yaml \
+#   --build-arg SERVICE=forum \
 #   --build-arg EXPOSE_PORT=8082 \
-#   -f Dockerfile.service -t forum-service:latest .
+#   -f backend/docker/containerfile.service -t forum-service:latest .
 
-FROM golang:1.24.9 AS builder
-ARG SERVICE_DIR
-ARG BINARY_NAME
+# syntax=docker/dockerfile:1.4
+FROM docker.io/library/golang:1.24.9 AS builder
+ARG SERVICE=user
+
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-WORKDIR /src/${SERVICE_DIR}
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /usr/local/bin/service
+
+# Use BuildKit mounts to access host caches and source during build.
+# Note: when using `--mount=type=bind,source=...`, the `source` path is
+# resolved on the builder host (relative to the build context or absolute).
+RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod,rw \
+    --mount=type=cache,id=go-build,target=/root/.cache/go-build,rw \
+    --mount=type=cache,id=go-bin,target=/go-bin,rw \
+    --mount=type=bind,source=.,target=/src \
+    cd /src/cmd/${SERVICE}-service && go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -o /go-bin/${SERVICE}-service && cp /go-bin/${SERVICE}-service /bin/myservice
 
 FROM alpine:3.18
-ARG BINARY_NAME
-ARG CONFIG_PATH
-ARG EXPOSE_PORT
-RUN apk add --no-cache ca-certificates coreutils bash
-COPY --from=builder /usr/local/bin/service /usr/local/bin/service
+ARG SERVICE=user
+ARG EXPOSE_PORT=8081
+RUN apk add --no-cache ca-certificates
+
+# Copy the built binary (we always write it as /go-bin/service in builder)
+COPY --from=builder /bin/myservice /bin/myservice
 WORKDIR /app
-# copy config if provided (buildkit required for ARG in COPY on older docker)
-RUN if [ -n "${CONFIG_PATH}" ]; then true; fi
-COPY ${CONFIG_PATH} /app/
+
+# Note: Dockerfile cannot conditionally COPY based on ARG at build time.
+# If you don't want to copy a config, omit --build-arg CONFIG_PATH or make sure
+# the ARG points to a valid path inside the build context. If CONFIG_PATH is
+# empty the following COPY will fail.
+COPY ./cmd/${SERVICE}-service/${SERVICE}.yaml /app/
 EXPOSE ${EXPOSE_PORT}
 ENV GIN_MODE=release
-# 
-ENTRYPOINT ["/usr/local/bin/service"]
-# CMD ["tail", "-f", "/dev/null"]
+
+ENTRYPOINT ["/bin/myservice"]
