@@ -22,8 +22,8 @@ func NewUserServer(userService service.UserService) UserServer {
 
 // / gRPC 调用接口
 // 查询用户信息
-func (uc *UserController) GetUserInfo(ctx context.Context, req *userpb.GetUserRequest) (*userpb.GetUserResponse, error) {
-	info, err := uc.userService.RPCGetUserInfo(ctx, req.UserId)
+func (us *UserServer) GetUserInfo(ctx context.Context, req *userpb.GetUserRequest) (*userpb.GetUserResponse, error) {
+	info, err := us.userService.RPCGetUserInfo(ctx, req.UserId)
 	switch err {
 	case syserror.NotFoundError:
 		return nil, status.Error(codes.NotFound, "user not found")

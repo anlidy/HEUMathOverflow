@@ -3,6 +3,7 @@ package model
 import (
 	"time"
 
+	"github.com/lib/pq"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -16,15 +17,15 @@ const (
 
 // pg表
 type Post struct {
-	ID          int64      `gorm:"primaryKey;autoIncrement:false" json:"post_id"` // post_id
-	AuthorID    int64      `gorm:"unique;not null" json:"author_id"`
-	Title       string     `gorm:"size:255" json:"title"` // size可被解释为varchar(size)
-	Tags        []string   `gorm:"type:text[]" json:"tags"`
-	Status      PostStatus `gorm:"not null" json:"status"`
-	DocID       string     `gorm:"type:char(24);not null" json:"-"` // objectID 为24字节
-	LastReplyAt *time.Time `json:"last_reply_at"`                   // 指针类型便于判空
-	CreatedAt   time.Time  `gorm:"autoCreateTime" json:"-"`
-	UpdatedAt   time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	ID          int64          `gorm:"primaryKey;autoIncrement:false" json:"post_id"` // post_id
+	AuthorID    int64          `gorm:"unique;not null" json:"author_id"`
+	Title       string         `gorm:"size:255" json:"title"` // size可被解释为varchar(size)
+	Tags        pq.StringArray `gorm:"type:text[]" json:"tags"`
+	Status      PostStatus     `gorm:"not null" json:"status"`
+	DocID       string         `gorm:"type:char(24);not null" json:"-"` // objectID 为24字节
+	LastReplyAt *time.Time     `json:"last_reply_at"`                   // 指针类型便于判空
+	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"-"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 // mongo集合

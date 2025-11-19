@@ -15,7 +15,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 WORKDIR /src/${SERVICE_DIR}
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /usr/local/bin/service
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /usr/local/bin/service .
 
 FROM alpine:3.18
 ARG BINARY_NAME

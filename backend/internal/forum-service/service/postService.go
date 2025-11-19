@@ -1,8 +1,8 @@
 package service
 
 import (
+	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
-	common "MathOverflow/internal/common/model"
 	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
@@ -12,9 +12,11 @@ import (
 	userpb "MathOverflow/proto/user"
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/jinzhu/copier"
+	"github.com/lib/pq"
 	"github.com/minio/minio-go/v7"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,56 +27,46 @@ import (
 )
 
 type PostService interface {
-	UploadFile(ctx context.Context, file common.File) (string, syserror.Error)
-	DownloadFile(ctx context.Context, filename string) (*common.File, syserror.Error)
 	CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error)
 	GetOnePost(ctx context.Context, userID, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
 }
 
 type postService struct {
-	cfg        config.Config
-	postRepo   repository.PostRepo
-	fileRepo   repository.FileRepo
-	userClient userpb.UserServiceClient
-	servName   string
+	cfg            config.Config
+	postRepo       repository.PostRepo
+	fileRepo       repository.FileRepo
+	servName       string
+	userClient     userpb.UserServiceClient
+	userClientOnce sync.Once
 }
 
-func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo repository.FileRepo, userConn *grpc.ClientConn) PostService {
+func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
+	var err error
+
+	s.userClientOnce.Do(func() {
+		var userConn *grpc.ClientConn
+		userConn, err = client.GetGRPCConn(s.cfg.GRPC.UserServiceAddr)
+		if err != nil {
+			return
+		}
+		s.userClient = userpb.NewUserServiceClient(userConn)
+	})
+
+	// 允许再次初始化
+	if err != nil {
+		s.userClientOnce = sync.Once{}
+	}
+
+	return s.userClient, err
+}
+
+func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
 	return &postService{
-		cfg:        cfg,
-		postRepo:   postRepo,
-		fileRepo:   fileRepo,
-		userClient: userpb.NewUserServiceClient(userConn),
-		servName:   "Post-Service",
+		cfg:      cfg,
+		postRepo: postRepo,
+		fileRepo: fileRepo,
+		servName: "Post-Service",
 	}
-}
-
-// 上传文件,返回临时链接
-func (s *postService) UploadFile(ctx context.Context, file common.File) (string, syserror.Error) {
-	// 将文件存入minio
-	url, err := s.fileRepo.UploadFile(ctx, s.cfg.Minio.Bucket, file)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return "", syserror.InternalError
-	}
-	return url, syserror.NoError
-}
-
-// 下载文件
-func (s *postService) DownloadFile(ctx context.Context, filename string) (*common.File, syserror.Error) {
-	// 检查文件是否存在
-	exists, err := s.fileRepo.FileExists(ctx, filename)
-	if err != nil {
-		return nil, syserror.InternalError
-	} else if !exists {
-		return nil, syserror.NotFoundError
-	}
-	// 从minio流式读取文件
-	file, err := s.fileRepo.DownloadFile(ctx, filename)
-	if err != nil {
-		return nil, syserror.InternalError
-	}
-	return file, syserror.NoError
 }
 
 // 创建新帖子
@@ -114,7 +106,7 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		ID:       postID,
 		AuthorID: userID,
 		Title:    req.Title,
-		Tags:     req.Tags,
+		Tags:     pq.StringArray(req.Tags),
 		Status:   model.Unanswered,
 		DocID:    utils.ObjectIDToString(docID),
 	}
@@ -131,8 +123,13 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 
 // 获取一条帖子
 func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
+	// 获取grpc client
+	userClient, err := s.getUserClient()
+	if err != nil {
+		return nil, nil, syserror.NetworkError
+	}
 	// 调用 UserService
-	resp, err := s.userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
+	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
 	if err != nil {
 		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
 		st, ok := status.FromError(err)
@@ -145,8 +142,12 @@ func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*re
 			return nil, nil, syserror.InternalError
 		case codes.NotFound:
 			return nil, nil, syserror.NotFoundError
+		default:
+			log.Printf("GRPC请求失败! code:%v err:%v\n", st.Code(), err)
+			return nil, nil, syserror.InternalError
 		}
 	}
+	log.Println(resp)
 	// 请求成功
 	var userInfo = &response.UserInfo{
 		ID:        userID,
