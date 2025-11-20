@@ -5,8 +5,7 @@ services:
       context: ..
       dockerfile: docker/containerfile.service
       args:
-        SERVICE_DIR: cmd/user-service
-        CONFIG_PATH: cmd/user-service/user.yaml
+        SERVICE: user
         EXPOSE_PORT: 8081
     tty: true         # 给容器分配伪终端（-t）
     environment:
@@ -24,8 +23,7 @@ services:
       context: ..
       dockerfile: docker/containerfile.service
       args:
-        SERVICE_DIR: cmd/forum-service
-        CONFIG_PATH: cmd/forum-service/forum.yaml
+        SERVICE: forum
         EXPOSE_PORT: 8082
     tty: true         # 给容器分配伪终端（-t）
     environment:
@@ -39,8 +37,7 @@ services:
       context: ..
       dockerfile: docker/containerfile.service
       args:
-        SERVICE_DIR: cmd/audit-service
-        CONFIG_PATH: cmd/audit-service/audit.yaml
+        SERVICE: audit
         EXPOSE_PORT: 8083
     tty: true         # 给容器分配伪终端（-t）
     environment:

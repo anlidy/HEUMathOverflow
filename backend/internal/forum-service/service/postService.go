@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jinzhu/copier"
 	"github.com/lib/pq"
 	"github.com/minio/minio-go/v7"
 	"go.mongodb.org/mongo-driver/bson"
@@ -28,7 +27,7 @@ import (
 
 type PostService interface {
 	CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error)
-	GetOnePost(ctx context.Context, userID, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
+	GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
 }
 
 type postService struct {
@@ -76,7 +75,7 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 
 	// 将临时url提升为正式url
 	var images = []string{}
-	for _, tmpUrl := range req.Images {
+	for _, tmpUrl := range req.ImageURL {
 		newUrl, err := s.fileRepo.PromoteFile(ctx, tmpUrl, s.cfg.Minio.Bucket, postID)
 		if err != nil {
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
@@ -92,7 +91,7 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 	var postContent = &model.PostContent{
 		PostID:    postID,
 		Content:   req.Content,
-		Images:    images,
+		ImageURLs: images,
 		CreatedAt: time.Now(),
 	}
 	docID, err := s.postRepo.CreateOnePost(ctx, postContent)
@@ -122,39 +121,7 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 }
 
 // 获取一条帖子
-func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
-	// 获取grpc client
-	userClient, err := s.getUserClient()
-	if err != nil {
-		return nil, nil, syserror.NetworkError
-	}
-	// 调用 UserService
-	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
-	if err != nil {
-		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
-		st, ok := status.FromError(err)
-		if !ok {
-			log.Println("非 gRPC 错误:", err)
-			return nil, nil, syserror.NetworkError
-		}
-		switch st.Code() {
-		case codes.Internal:
-			return nil, nil, syserror.InternalError
-		case codes.NotFound:
-			return nil, nil, syserror.NotFoundError
-		default:
-			log.Printf("GRPC请求失败! code:%v err:%v\n", st.Code(), err)
-			return nil, nil, syserror.InternalError
-		}
-	}
-	log.Println(resp)
-	// 请求成功
-	var userInfo = &response.UserInfo{
-		ID:        userID,
-		Username:  resp.Username,
-		Role:      int(resp.Role),
-		AvatarUrl: resp.AvatarUrl,
-	}
+func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
 	// 查询帖子元信息
 	post, err := s.postRepo.FindPostByID(postID)
 	if err != nil {
@@ -173,11 +140,44 @@ func (s *postService) GetOnePost(ctx context.Context, userID, postID int64) (*re
 		log.Printf("[%s] %v\n", s.servName, err)
 		return nil, nil, syserror.InternalError
 	}
+
+	// 获取grpc client
+	userClient, err := s.getUserClient()
+	if err != nil {
+		return nil, nil, syserror.NetworkError
+	}
+	// 调用 UserService
+	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: post.AuthorID})
+	if err != nil {
+		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			log.Println("非 gRPC 错误:", err)
+			return nil, nil, syserror.NetworkError
+		}
+		switch st.Code() {
+		case codes.Internal:
+			return nil, nil, syserror.InternalError
+		case codes.NotFound:
+			return nil, nil, syserror.NotFoundError
+		default:
+			log.Printf("GRPC请求失败! code:%v err:%v\n", st.Code(), err)
+			return nil, nil, syserror.InternalError
+		}
+	}
+	// 请求成功
+	var userInfo = &response.UserInfo{
+		ID:        resp.UserId,
+		Username:  resp.Username,
+		Role:      int(resp.Role),
+		AvatarUrl: resp.AvatarUrl,
+	}
+
 	// 聚合返回查询结果
-	postData := &response.PostData{}
-	copier.Copy(postData, &post)
-	postData.Content = postContent.Content
-	postData.Images = postContent.Images
+	postData := &response.PostData{
+		Post:        post,
+		PostContent: postContent,
+	}
 
 	return userInfo, postData, syserror.NoError
 }

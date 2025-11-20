@@ -20,7 +20,7 @@ type PostRepo interface {
 	DeletePost(postID int64) error
 	// mongo
 	CreateOnePost(ctx context.Context, post *model.PostContent) (primitive.ObjectID, error)
-	FindOnePost(ctx context.Context, filter bson.M) (*model.PostContent, error)
+	FindOnePost(ctx context.Context, filter bson.M) (model.PostContent, error)
 	UpdateOnePost(ctx context.Context, query bson.M, update bson.D) (bool, error)
 	DeleteOnePost(ctx context.Context, query bson.M) error
 }
@@ -75,17 +75,17 @@ func (r *postRepo) DeletePost(postID int64) error {
 func (r *postRepo) CreateOnePost(ctx context.Context, post *model.PostContent) (primitive.ObjectID, error) {
 	result, err := r.posts.InsertOne(ctx, post)
 	if err != nil {
-		return primitive.ObjectID{}, err
+		return primitive.ObjectID{}, fmt.Errorf("mongo: %v", err)
 	}
 	return result.InsertedID.(primitive.ObjectID), nil
 }
 
 // 查找一个帖子
-func (r *postRepo) FindOnePost(ctx context.Context, filter bson.M) (*model.PostContent, error) {
-	var post *model.PostContent
-	err := r.posts.FindOne(ctx, filter).Decode(post)
+func (r *postRepo) FindOnePost(ctx context.Context, filter bson.M) (model.PostContent, error) {
+	var post model.PostContent
+	err := r.posts.FindOne(ctx, filter).Decode(&post)
 	if err != nil {
-		return nil, err
+		return post, fmt.Errorf("mongo: %v", err)
 	}
 	return post, nil
 }
@@ -94,11 +94,11 @@ func (r *postRepo) FindOnePost(ctx context.Context, filter bson.M) (*model.PostC
 func (r *postRepo) UpdateOnePost(ctx context.Context, query bson.M, update bson.D) (bool, error) {
 	result, err := r.posts.UpdateOne(ctx, query, update, options.Update().SetUpsert(false))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("mongo: %v", err)
 	}
 	// 检查匹配情况
 	if result.MatchedCount == 0 {
-		return false, fmt.Errorf("未找到要更新的帖子内容")
+		return false, fmt.Errorf("mongo: 未找到要更新的帖子内容")
 	}
 	return result.ModifiedCount > 0, nil
 }
@@ -107,10 +107,10 @@ func (r *postRepo) UpdateOnePost(ctx context.Context, query bson.M, update bson.
 func (r *postRepo) DeleteOnePost(ctx context.Context, query bson.M) error {
 	result, err := r.posts.DeleteOne(ctx, query)
 	if err != nil {
-		return err
+		return fmt.Errorf("mongo: %v", err)
 	}
 	if result.DeletedCount == 0 {
-		return fmt.Errorf("未找到要删除的帖子内容")
+		return fmt.Errorf("mongo: 未找到要删除的帖子内容")
 	}
 	return nil
 }

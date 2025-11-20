@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: docker.io/library/postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -8,18 +8,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     # ports:
       # - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
     volumes:
       - ./data/Postgre:/var/lib/postgresql/data
       - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql # 初始化创建数据库
 
   redis:
-    image: redis:7-alpine
+    image: docker.io/library/redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     # ports:
       # - "6379:6379"
@@ -27,7 +21,7 @@ services:
       - ./data/Redis:/data
 
   minio:
-    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    image: docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -39,7 +33,7 @@ services:
       - ./data/Minio:/data
   
   mongodb:
-    image: mongo:8.0
+    image: docker.io/library/mongo:8.0
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}

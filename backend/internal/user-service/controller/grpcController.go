@@ -31,11 +31,20 @@ func (us *UserServer) GetUserInfo(ctx context.Context, req *userpb.GetUserReques
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 	// 正常返回
-	var resp = &userpb.GetUserResponse{
-		UserId:    info.ID,
-		Username:  info.Username,
-		Role:      int64(info.Role), // x64平台的int == int64
-		AvatarUrl: info.AvatarUrl,
+	return info, nil
+}
+
+func (us *UserServer) BatchGetUserInfo(ctx context.Context, req *userpb.BatchGetUserRequest) (*userpb.BatchGetUserResponse, error) {
+	infoMap, err := us.userService.RPCBatchGetUserInfo(ctx, req.UserIds)
+	switch err {
+	case syserror.NotFoundError:
+		return nil, status.Error(codes.NotFound, "user not found")
+	case syserror.InternalError:
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+	// 正常返回
+	var resp = &userpb.BatchGetUserResponse{
+		Users: infoMap,
 	}
 	return resp, nil
 }

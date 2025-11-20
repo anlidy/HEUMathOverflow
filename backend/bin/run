@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure we run from this script's directory so paths to compose files are correct
+# 定位到当前脚本所在目录，然后切换到 ../docker 目录
 DIR="$(cd "$(dirname "${0}")" && pwd)"
 cd "$DIR"
 cd ../docker

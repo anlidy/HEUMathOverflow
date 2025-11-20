@@ -5,7 +5,6 @@ import (
 	common "MathOverflow/internal/common/model"
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -61,13 +60,14 @@ func (r *fileRepo) PromoteFile(ctx context.Context, tmpURL, bucket string, hostI
 		return "", fmt.Errorf("复制失败: %v", err)
 	}
 
-	// 4. 删除旧的 tmp 对象
-	err = r.DeleteFile(ctx, tmpName)
-	if err != nil {
-		log.Printf("删除临时文件失败: %v", err)
-	}
+	/// 保留临时文件,由系统自动清理,防止其他步骤出错导致文件被删除
+	// // 4. 删除旧的 tmp 对象
+	// err = r.DeleteFile(ctx, tmpName)
+	// if err != nil {
+	// 	log.Printf("删除临时文件失败: %v", err)
+	// }
 
-	// 5. 返回新 URL
+	// 返回新 URL
 	newURL := fmt.Sprintf("/api/v1/%s/file/%s", bucket, newName)
 	return newURL, nil
 }

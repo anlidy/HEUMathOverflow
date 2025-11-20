@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_GetUserInfo_FullMethodName = "/user.UserService/GetUserInfo"
+	UserService_GetUserInfo_FullMethodName      = "/user.UserService/GetUserInfo"
+	UserService_BatchGetUserInfo_FullMethodName = "/user.UserService/BatchGetUserInfo"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -29,6 +30,7 @@ const (
 // 用户服务接口定义
 type UserServiceClient interface {
 	GetUserInfo(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
+	BatchGetUserInfo(ctx context.Context, in *BatchGetUserRequest, opts ...grpc.CallOption) (*BatchGetUserResponse, error)
 }
 
 type userServiceClient struct {
@@ -49,6 +51,16 @@ func (c *userServiceClient) GetUserInfo(ctx context.Context, in *GetUserRequest,
 	return out, nil
 }
 
+func (c *userServiceClient) BatchGetUserInfo(ctx context.Context, in *BatchGetUserRequest, opts ...grpc.CallOption) (*BatchGetUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchGetUserResponse)
+	err := c.cc.Invoke(ctx, UserService_BatchGetUserInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -56,6 +68,7 @@ func (c *userServiceClient) GetUserInfo(ctx context.Context, in *GetUserRequest,
 // 用户服务接口定义
 type UserServiceServer interface {
 	GetUserInfo(context.Context, *GetUserRequest) (*GetUserResponse, error)
+	BatchGetUserInfo(context.Context, *BatchGetUserRequest) (*BatchGetUserResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -68,6 +81,9 @@ type UnimplementedUserServiceServer struct{}
 
 func (UnimplementedUserServiceServer) GetUserInfo(context.Context, *GetUserRequest) (*GetUserResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserInfo not implemented")
+}
+func (UnimplementedUserServiceServer) BatchGetUserInfo(context.Context, *BatchGetUserRequest) (*BatchGetUserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchGetUserInfo not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -108,6 +124,24 @@ func _UserService_GetUserInfo_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_BatchGetUserInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchGetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).BatchGetUserInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_BatchGetUserInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).BatchGetUserInfo(ctx, req.(*BatchGetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -118,6 +152,10 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUserInfo",
 			Handler:    _UserService_GetUserInfo_Handler,
+		},
+		{
+			MethodName: "BatchGetUserInfo",
+			Handler:    _UserService_BatchGetUserInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -18,22 +18,22 @@ func SetupRouter(rdb *redis.Client,
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 	forum := v1.Group("/forum")
-	// 无需鉴权
-	forum.GET("/file/*filename", forumContrller.DownloadFile)
 
-	// 鉴权--论坛
+	// 论坛
 	authForum := forum.Group("")
 	authForum.Use(middleware.AuthMiddleware(rdb))
 	authForum.POST("/upload", forumContrller.UploadTempFile)
+	forum.GET("/file/*filename", forumContrller.DownloadFile) // 无需鉴权
 
-	// 鉴权--帖子相关
-	authPost := authForum.Group("/post")
+	// 帖子相关
+	authPost := authForum.Group("/posts")
+	authPost.POST("", postController.CreateNewPost)
 	authPost.GET("/:postID", postController.GetPostData)
-	authPost.POST("/createPost", postController.CreateNewPost)
+	authPost.GET("/:postID/replies", replyController.BatchGetReply) // 根据条件获取所有回帖
 
-	// 鉴权--回帖相关
-	authReply := authForum.Group("/reply")
+	// 回帖相关
+	authReply := authForum.Group("/replies")
+	authReply.POST("", replyController.CreateNewReply)
 	authReply.GET("/:replyID", replyController.GetOneReply)
-	authReply.POST("/createReply", replyController.CreateNewReply)
 	return r
 }

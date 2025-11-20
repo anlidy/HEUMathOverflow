@@ -4,7 +4,6 @@ import (
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
 	"MathOverflow/internal/forum-service/service"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -53,15 +52,12 @@ func (pc *PostController) GetPostData(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest, "data": nil})
 		return
 	}
-	var userID = c.GetInt64("userID")
-	userInfo, postData, syserr := pc.postServ.GetOnePost(ctx, userID, postID)
+	userInfo, postData, syserr := pc.postServ.GetOnePost(ctx, postID)
 	switch syserr {
 	case syserror.NetworkError:
-		log.Printf("[%s] gRPC网络异常: %v\n", pc.name, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
 		return
 	case syserror.InternalError:
-		log.Printf("[%s] %v\n", pc.name, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError, "data": nil})
 		return
 	case syserror.NotFoundError:

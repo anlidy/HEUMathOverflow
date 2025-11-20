@@ -14,9 +14,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/jinzhu/copier"
 	"github.com/minio/minio-go/v7"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -26,7 +26,8 @@ import (
 
 type ReplyService interface {
 	CreateNewReply(ctx context.Context, userID int64, req request.ReplyCreate) (int64, syserror.Error)
-	GetOneReply(ctx context.Context, userID, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
+	GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
+	GetManyReplies(ctx context.Context, postID int64, offset, limit int) ([]response.MultiReplyData, syserror.Error)
 }
 
 type replyService struct {
@@ -73,7 +74,7 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 	var replyID = utils.GenerateSnowflakeID()
 	// 将临时url提升为正式url
 	var images = []string{}
-	for _, tmpUrl := range req.Images {
+	for _, tmpUrl := range req.ImageURLs {
 		newUrl, err := s.fileRepo.PromoteFile(ctx, tmpUrl, s.cfg.Minio.Bucket, replyID)
 		if err != nil {
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
@@ -84,22 +85,25 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 		}
 		images = append(images, newUrl)
 	}
-
-	voice, err := s.fileRepo.PromoteFile(ctx, req.Voice, s.cfg.Minio.Bucket, replyID)
-	if err != nil {
-		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-			return -1, syserror.ResourceExpiredError
+	var voice string
+	if req.VoiceURL != "" {
+		var err error
+		voice, err = s.fileRepo.PromoteFile(ctx, req.VoiceURL, s.cfg.Minio.Bucket, replyID)
+		if err != nil {
+			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+				return -1, syserror.ResourceExpiredError
+			}
+			log.Printf("[%s] %v\n", s.servName, err)
+			return -1, syserror.InternalError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
-		return -1, syserror.InternalError
 	}
 
 	// 创建mongo文档
 	var replyContent = &model.ReplyContent{
 		ReplyID:    replyID,
 		Content:    req.Content,
-		Voice:      voice,
-		Images:     images,
+		VoiceURL:   voice,
+		ImageURLs:  images,
 		AIAnswered: false,
 	}
 	docID, err := s.replyRepo.MCreateReply(ctx, replyContent)
@@ -130,35 +134,7 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 }
 
 // 获取一条回帖
-func (s *replyService) GetOneReply(ctx context.Context, userID, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
-	// 获取grpc client
-	userClient, err := s.getUserClient()
-	if err != nil {
-		return nil, nil, syserror.NetworkError
-	}
-	// 调用 UserService
-	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
-	if err != nil {
-		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
-		st, ok := status.FromError(err)
-		if !ok {
-			log.Println("非 gRPC 错误:", err)
-			return nil, nil, syserror.NetworkError
-		}
-		switch st.Code() {
-		case codes.Internal:
-			return nil, nil, syserror.InternalError
-		case codes.NotFound:
-			return nil, nil, syserror.NotFoundError
-		}
-	}
-	// 请求成功
-	var userInfo = &response.UserInfo{
-		ID:        userID,
-		Username:  resp.Username,
-		Role:      int(resp.Role),
-		AvatarUrl: resp.AvatarUrl,
-	}
+func (s *replyService) GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
 	// 查询回帖元信息
 	reply, err := s.replyRepo.FindReplyByID(replyID)
 	if err != nil {
@@ -177,10 +153,105 @@ func (s *replyService) GetOneReply(ctx context.Context, userID, replyID int64) (
 		log.Printf("[%s] %v\n", s.servName, err)
 		return nil, nil, syserror.InternalError
 	}
+	// 获取grpc client
+	userClient, err := s.getUserClient()
+	if err != nil {
+		return nil, nil, syserror.NetworkError
+	}
+	// 调用 UserService
+	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: reply.ReplierID})
+	if err != nil {
+		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			log.Println("非 gRPC 错误:", err)
+			return nil, nil, syserror.NetworkError
+		}
+		switch st.Code() {
+		case codes.Internal:
+			return nil, nil, syserror.InternalError
+		case codes.NotFound:
+			return nil, nil, syserror.NotFoundError
+		}
+	}
+	// 请求成功
+	var userInfo = &response.UserInfo{
+		ID:        resp.UserId,
+		Username:  resp.Username,
+		Role:      int(resp.Role),
+		AvatarUrl: resp.AvatarUrl,
+	}
 	// 聚合返回查询结果
-	replyData := &response.ReplyData{}
-	copier.Copy(replyData, &reply)
-	copier.Copy(replyData, replyContent)
+	replyData := &response.ReplyData{
+		Reply:        reply,
+		ReplyContent: replyContent,
+	}
 
 	return userInfo, replyData, syserror.NoError
+}
+
+// 获取分页帖子
+func (s *replyService) GetManyReplies(ctx context.Context, postID int64, offset, limit int) ([]response.MultiReplyData, syserror.Error) {
+	// 获取grpc client
+	userClient, err := s.getUserClient()
+	if err != nil {
+		return nil, syserror.NetworkError
+	}
+	// 查询回帖元信息
+	replies, err := s.replyRepo.FindRepliesByPostID(postID, offset, limit)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, syserror.NotFoundError
+		}
+		log.Printf("[%s] %v\n", s.servName, err)
+		return nil, syserror.InternalError
+	}
+	// 查询回帖正文内容
+	// 构建查询的docID和userID数组
+	docIDs := make([]primitive.ObjectID, len(replies))
+	userIDs := make([]int64, len(replies))
+	for i, reply := range replies {
+		docIDs[i], _ = utils.StringToObjectID(reply.DocID)
+		userIDs[i] = reply.ReplierID
+	}
+	replyContents, err := s.replyRepo.MFindAllReply(ctx, bson.M{"_id": bson.M{"$in": docIDs}})
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, syserror.NotFoundError
+		}
+		log.Printf("[%s] %v\n", s.servName, err)
+		return nil, syserror.InternalError
+	}
+	// 调用 UserService
+	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
+	if err != nil {
+		log.Printf("[%s] 调用 BatchGetUserInfo 失败: %v\n", s.servName, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			log.Println("非 gRPC 错误:", err)
+			return nil, syserror.NetworkError
+		}
+		switch st.Code() {
+		case codes.Internal:
+			return nil, syserror.InternalError
+		case codes.NotFound:
+			return nil, syserror.NotFoundError
+		}
+	}
+	// 请求成功
+	var userMap = resp.Users
+	// 聚合返回查询结果
+	replyDatas := make([]response.MultiReplyData, len(replies))
+	for i := range replies {
+		var user = userMap[replies[i].ReplierID]
+		replyDatas[i].UserInfo = response.UserInfo{
+			ID:        user.UserId,
+			Username:  user.Username,
+			Role:      int(user.Role),
+			AvatarUrl: user.AvatarUrl,
+		}
+		replyDatas[i].ReplyData.Reply = replies[i]
+		replyDatas[i].ReplyData.ReplyContent = replyContents[i]
+	}
+	return replyDatas, syserror.NoError
 }
