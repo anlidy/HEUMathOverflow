@@ -4,8 +4,8 @@ server:
 postgres:
   host: postgres
   port: 5432
-  user: forum_user
-  password: forum_pass
+  user: audit_service_user
+  password: audit_service_user
   dbname: audit_db
   sslmode: disable
 

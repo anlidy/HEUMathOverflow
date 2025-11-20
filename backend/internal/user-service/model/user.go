@@ -11,22 +11,6 @@ const (
 	Admin                     // 4
 )
 
-// 获取role的字符串名称
-func GetRoleName(role Role) string {
-	switch role {
-	case Student:
-		return "student"
-	case Assistant:
-		return "assitant"
-	case Teacher:
-		return "teacher"
-	case Admin:
-		return "admin"
-	default:
-		return ""
-	}
-}
-
 func ValidateRole(role Role) bool {
 	return role >= Student && role <= Admin
 

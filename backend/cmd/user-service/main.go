@@ -46,7 +46,6 @@ func main() {
 	}
 
 	// 初始化minio数据库
-	fmt.Println(cfg.Minio)
 	minio, err := client.InitMinIO(cfg.Minio)
 	if err != nil {
 		panic(err)
@@ -84,13 +83,13 @@ func main() {
 	eg.Go(func() error {
 		lis, _ := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPC.ExposePort))
 		grpcServer := grpc.NewServer()
-		pb.RegisterUserServiceServer(grpcServer, userServer)
+		pb.RegisterUserServiceServer(grpcServer, &userServer)
 		go func() {
 			<-ctx.Done()
 			grpcServer.GracefulStop()
 			log.Println("User GRPC Exited.")
 		}()
-		log.Println("User GRPC is running...")
+		log.Printf("User GRPC is running at %d ...\n", cfg.GRPC.ExposePort)
 		return grpcServer.Serve(lis)
 	})
 

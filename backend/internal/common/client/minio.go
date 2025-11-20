@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"path"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -21,12 +22,29 @@ type MinioClinet struct {
 
 // 初始化minio
 func InitMinIO(cfg config.MinioConfig) (*MinioClinet, error) {
-	client, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.UseSSL,
-	})
+	maxRetries := 5
+	retryInterval := 3 * time.Second
+
+	var client *minio.Client
+	var err error
+
+	for i := 1; i <= maxRetries; i++ {
+		client, err = minio.New(cfg.Endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+			Secure: cfg.UseSSL,
+		})
+		if err == nil {
+			fmt.Println("MinIO connected:", cfg.Endpoint)
+			break
+		}
+		log.Printf("连接 MinIO 失败 (第 %d/%d 次): %v", i, maxRetries, err)
+		if i < maxRetries {
+			time.Sleep(retryInterval)
+			log.Println("正在重试连接 MinIO...")
+		}
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize minio client: %w", err)
+		return nil, fmt.Errorf("failed to initialize minio client after %d retries: %w", maxRetries, err)
 	}
 
 	// 创建 bucket（如果不存在）
@@ -60,7 +78,7 @@ func InitMinIO(cfg config.MinioConfig) (*MinioClinet, error) {
 		if err != nil {
 			log.Fatalf("设置生命周期失败: %v", err)
 		}
-		fmt.Printf("已为 bucket: %s 启用临时文件自动清理,清理周期为 %d天.", cfg.Bucket, cfg.CleanCycleDays)
+		fmt.Printf("已为 bucket: %s 启用临时文件自动清理,清理周期为 %d天.\n", cfg.Bucket, cfg.CleanCycleDays)
 	}
 
 	return &MinioClinet{Client: client, Bucket: cfg.Bucket}, nil
