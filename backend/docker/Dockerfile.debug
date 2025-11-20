@@ -1,3 +1,4 @@
+
 # syntax directive enables BuildKit features like RUN --mount
 # usage example (from repo root):
 # DOCKER_BUILDKIT=1 docker build \
@@ -42,4 +43,4 @@ COPY ./cmd/${SERVICE}-service/${SERVICE}.yaml /app/
 EXPOSE ${EXPOSE_PORT}
 ENV GIN_MODE=release
 
-ENTRYPOINT ["/bin/myservice"]
+CMD ["/bin/myservice"]
