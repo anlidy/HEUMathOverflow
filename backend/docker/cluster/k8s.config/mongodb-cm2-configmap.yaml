@@ -1,0 +1,10 @@
+apiVersion: v1
+data:
+  init.js: db = db.getSiblingDB('forum_content');
+kind: ConfigMap
+metadata:
+  annotations:
+    use-subpath: "true"
+  labels:
+    io.kompose.service: mongodb
+  name: mongodb-cm2

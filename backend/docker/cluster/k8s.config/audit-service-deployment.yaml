@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose -f ../docker-compose.service.yml convert
+    kompose.version: 1.37.0 (fb0539e64)
+  labels:
+    io.kompose.service: audit-service
+  name: audit-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: audit-service
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose -f ../docker-compose.service.yml convert
+        kompose.version: 1.37.0 (fb0539e64)
+      labels:
+        io.kompose.service: audit-service
+    spec:
+      containers:
+        - env:
+            - name: GIN_MODE
+              value: release
+          image: audit-service
+          name: audit-service
+          ports:
+            - containerPort: 8083
+              protocol: TCP
+          tty: true
+      restartPolicy: Always

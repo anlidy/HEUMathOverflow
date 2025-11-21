@@ -27,18 +27,50 @@ def cprint(*values, color=Colors.WHITE, **kwargs):
     print(color + ' '.join(str(v) for v in values) + Colors.END, **kwargs)
 
 
-def locate_project_root():
+def locate_project_root(cd: bool = True) -> Path:
+    '''定位项目根目录（包含 backend 和 frontend 目录的目录）'''
     script_dir = Path(__file__).resolve()
     root = [
         p for p in script_dir.parents
         if (p.name.endswith('backend'))
-    ][0].parent
-    os.chdir(root)
+    ]
+    neibours = os.listdir(script_dir.parent)
+    flag = (('backend' in neibours) or (
+        'frontend' in neibours)) and ('.git' in neibours)
+    root = root[0].parent if root else '.' if flag else None
+    if root is None:
+        raise FileNotFoundError(
+            '未能定位项目根目录，请确保脚本debug.py存在于backend目录及其子目录中')
+    root = Path(root)
+    if cd:
+        try:
+            os.chdir(root)
+        except Exception as e:
+            cprint('进入项目根目录失败，错误信息：'+str(e), color=Colors.RED)
+            cprint("请确保脚本debug.py存在于backend目录及其子目录中", color=Colors.CYAN)
     return root
 
 
+def cd_run(target_dir: Path):
+    '''带参装饰器：切换到 `target_dir` 目录，运行被装饰的函数，然后切回原目录'''
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            cwd = os.getcwd()
+            try:
+                os.chdir(target_dir)
+                return func(*args, **kwargs)
+            finally:
+                try:
+                    os.chdir(cwd)
+                except Exception:
+                    cprint('无法切回原目录', color=Colors.RED)
+        return wrapper
+    return decorator
+
+
 def _run(cmd, **kwargs):
-    cprint(f'RUN: {" ".join(cmd)}', color=Colors.CYAN)
+    cprint(f'RUN: {" ".join(cmd)}', color=Colors.BLUE)
     subprocess.run(cmd, check=True, **kwargs)
 
 
@@ -179,7 +211,7 @@ def _cmd_gen(arg):
             'build': [build_cmd],
             'run': [run_cmd],
             'log': [log_cmd] if log_cmd else []}
-    return cmds 
+    return cmds
 
 
 @keep_dir
@@ -212,7 +244,8 @@ def main(args=None):
                 cmd, stdin=sys.stdin if arg.interactive else None, stdout=sys.stdout, stderr=sys.stderr)
         if arg.rm:
             print()
-            _run(['docker', 'rm', '-f', f'{arg.service}-service-debug' + arg.time_stamp])
+            _run(['docker', 'rm', '-f',
+                 f'{arg.service}-service-debug' + arg.time_stamp])
     cprint('Debugging session ended.', color=Colors.GREEN)
 
 

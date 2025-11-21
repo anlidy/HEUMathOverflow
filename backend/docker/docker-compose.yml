@@ -2,23 +2,28 @@ services:
   postgres:
     image: docker.io/library/postgres:17
     restart: unless-stopped
+    tty: true
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Shanghai
     # ports:
-      # - "5432:5432"
+    #   - "5432:5432"
     volumes:
-      - ./data/Postgre:/var/lib/postgresql/data
-      - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql # 初始化创建数据库
+      - pgs_data:/var/lib/postgresql/data
+      - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro  # 可选
 
   redis:
     image: docker.io/library/redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     # ports:
-      # - "6379:6379"
+    #   - "6379:6379"
     volumes:
-      - ./data/Redis:/data
+      - redis_data:/data
+      - /etc/timezone:/etc/timezone:ro  # 可选
 
   minio:
     image: docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
@@ -30,7 +35,8 @@ services:
       # - "9000:9000"
       - "9001:9001"
     volumes:
-      - ./data/Minio:/data
+      - minio_data:/data
+      - /etc/timezone:/etc/timezone:ro  # 可选
   
   mongodb:
     image: docker.io/library/mongo:8.0
@@ -38,13 +44,23 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    command: 
     # ports:
-     # - "27017:27017"
+    #  - "27017:27017"
     volumes:
-      - ./data/Mongo:/data/db
+      - mongo_data:/data/db
+      - mongo_config_db:/data/configdb
       - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
+      - /etc/timezone:/etc/timezone:ro  # 可选
 
 networks:
   default:
     name: backend_default
     driver: bridge
+  
+volumes:
+  pgs_data:
+  redis_data:
+  minio_data:
+  mongo_data:
+  mongo_config_db:
