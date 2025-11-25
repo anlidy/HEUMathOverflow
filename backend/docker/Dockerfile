@@ -3,9 +3,23 @@
 # DOCKER_BUILDKIT=1 docker build \
 #   --build-arg SERVICE=forum \
 #   --build-arg EXPOSE_PORT=8082 \
-#   -f backend/docker/containerfile.service -t forum-service:latest .
+#   -f backend/docker/Dockerfile -t forum-service:latest .
 
 # syntax=docker/dockerfile:1.4
+FROM docker.io/library/golang:1.24.9 AS development
+ARG SERVICE=user
+ARG EXPOSE_PORT=8081
+
+RUN go install github.com/air-verse/air@v1.62.0
+
+WORKDIR /src
+COPY . .
+EXPOSE ${EXPOSE_PORT}
+
+WORKDIR /src/cmd/${SERVICE}-service
+CMD ["air", "-c", "./.air.toml"]
+# CMD ["tail", "-f", "/dev/null"]
+
 FROM docker.io/library/golang:1.24.9 AS builder
 ARG SERVICE=user
 
@@ -25,7 +39,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod,rw \
     --mount=type=cache,id=go-bin,target=/go-bin,rw \
     cd /src/cmd/${SERVICE}-service && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -o /go-bin/${SERVICE}-service && cp /go-bin/${SERVICE}-service /bin/myservice
 
-FROM alpine:3.18
+FROM alpine:3.18 AS production
 ARG SERVICE=user
 ARG EXPOSE_PORT=8081
 RUN apk add --no-cache ca-certificates

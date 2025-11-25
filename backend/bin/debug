@@ -1,2 +1,0 @@
-#!/bin/env bash
-/bin/env python3 ${BASH_SOURCE%/*}/debug.py "$@"
