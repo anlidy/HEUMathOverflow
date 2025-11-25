@@ -1,37 +1,25 @@
 #!/bin/env python3
 import os
+import sys
 import subprocess
 import time
 from pathlib import Path
 import argparse
-from run import run_cmd as composer
-from debug import Colors, cprint, locate_project_root, _run, keep_dir, cd_run
-
-
-def kubeconfig_gen():
-    dir = './backend/docker/cluster/k8s.config'+time_stamp
-    pwd = os .getcwd()
-    cprint('生成新的 Kubernetes 配置文件至 '+dir, color=Colors.BLUE)
-    os.makedirs(dir, exist_ok=True)
-    os.chdir(dir)
-    subprocess.run(['kompose', '-f', '../../docker-compose.service.yml', 'convert',
-                    '--controller', 'deployment', '--out', './'], check=True)
-    subprocess.run(['kompose', '-f', '../../docker-compose.yml', 'convert',
-                    '--controller', 'statefulset', '--out', './'], check=True)
-    os.chdir(pwd)
-    return dir
+from scriptlib import Colors, cprint, locate_project_root, crun, keep_dir, cd_run
 
 
 def load(images):
     cprint('装载镜像至 KIND 集群...', color=Colors.BLUE)
     for img in images:
-        _run(['kind', 'load', 'docker-image', img])
+        crun(['kind', 'load', 'docker-image', img])
 
 
 @cd_run(target_dir=Path('./backend') / 'docker')
 def build(specific: None | list[str] = None, project: str = 'kind') -> list[str]:
-    process = composer('build', *(specific or []), project=project,
-                       check=True, capture_output=True, text=True)
+    # process = composer('build', *(specific or []), project=project,
+    #                    check=True, capture_output=True, text=True)
+    process = subprocess.run(['docker', 'compose'] + ['-f', 'docker-compose.service.yml'] + (
+        ['-p', project] if project else []) + ['build'] + (specific or []), check=True, capture_output=True, text=True)
     images: str = process.stderr
     images = [line.strip().split()[0].strip()
               for line in images.splitlines() if line.strip().endswith('Built')]
@@ -47,26 +35,28 @@ def image_adapt(images: list[str]) -> list[str]:
 
 
 def kind(name='kind'):
-    clusters = subprocess.run(
-        ['kind', 'get', 'clusters'], check=True, capture_output=True, text=True)
+
+    clusters = crun(
+        ['kind', 'get', 'clusters'], capture_output=True, text=True)
     clusters = clusters.stdout.strip().splitlines()
     if name in clusters:
         return 0
+    config_path = locate_project_root()/'backend'/'docker' / \
+        'cluster'/'kind.config.yml'
     proc = subprocess.run(['kind', 'create', 'cluster', '--name', name, '--config',
-                           str(locate_project_root() / 'backend' / 'docker'/'cluster'/'kind.config.yaml')], check=True)
+                           str(config_path)])
     return proc.returncode
 
 
 def arg_handle(args=None):
     parser = argparse.ArgumentParser(description='KIND CI 部署脚本')
-    parser.add_argument('--config-gen', action='store_true',
-                        help='使用 kompose 生成新的 Kubernetes 配置文件')
     parser.add_argument('service', nargs='*', default=None, choices=['forum', 'user', 'audit'],
                         help='指定要构建和加载到 KIND 的服务，默认全部')
     arg = parser.parse_args(args)
     if arg.service:
         arg.service = [i+'-service' for i in arg.service]
     return arg
+
 
 def apply(dir):
     cprint('正在应用 Kubernetes 配置文件：'+dir, color=Colors.BLUE)
@@ -81,10 +71,9 @@ def main(args=None):
     cprint(f'以根目录 @ {root} 启动 KIND CI', color=Colors.CYAN)
     images = image_adapt(build(project='kind', specific=arg.service))
     load(images)
-    dir = kubeconfig_gen() if arg.config_gen else './backend/docker/cluster/k8s.config'
+    dir = './backend/docker/cluster/k8s.config'
     apply(dir)
     cprint('KIND CI 布置完成.', color=Colors.GREEN)
-    
 
 
 if __name__ == '__main__':

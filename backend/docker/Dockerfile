@@ -1,11 +1,4 @@
-# syntax directive enables BuildKit features like RUN --mount
-# usage example (from repo root):
-# DOCKER_BUILDKIT=1 docker build \
-#   --build-arg SERVICE=forum \
-#   --build-arg EXPOSE_PORT=8082 \
-#   -f backend/docker/Dockerfile -t forum-service:latest .
-
-# syntax=docker/dockerfile:1.4
+# development stage with air for live reloading
 FROM docker.io/library/golang:1.24.9 AS development
 ARG SERVICE=user
 ARG EXPOSE_PORT=8081
@@ -20,6 +13,7 @@ WORKDIR /src/cmd/${SERVICE}-service
 CMD ["air", "-c", "./.air.toml"]
 # CMD ["tail", "-f", "/dev/null"]
 
+# two level for production, alpine only
 FROM docker.io/library/golang:1.24.9 AS builder
 ARG SERVICE=user
 
@@ -48,10 +42,7 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /bin/myservice /bin/myservice
 WORKDIR /app
 
-# Note: Dockerfile cannot conditionally COPY based on ARG at build time.
-# If you don't want to copy a config, omit --build-arg CONFIG_PATH or make sure
-# the ARG points to a valid path inside the build context. If CONFIG_PATH is
-# empty the following COPY will fail.
+# Copy the service config file
 COPY ./cmd/${SERVICE}-service/${SERVICE}.yaml /app/
 EXPOSE ${EXPOSE_PORT}
 ENV GIN_MODE=release

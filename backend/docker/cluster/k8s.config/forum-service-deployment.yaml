@@ -25,6 +25,7 @@ spec:
             - name: GIN_MODE
               value: release
           image: forum-service
+          imagePullPolicy: IfNotPresent
           name: forum-service
           ports:
             - containerPort: 8082

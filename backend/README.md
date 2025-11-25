@@ -2,6 +2,7 @@
 
 #### 安装依赖库: 
 ```bash
+# 容器部署时由docker自动完成
  cd backend/
  go mod download
 ```
@@ -12,7 +13,7 @@
 
 `/cmd `  各个go服务的启动入口(main.go)
 
-`/docker` docker配置文件
+`/docker` docker及k8s配置文件
 
 `/internal` 程序的内部实现
 
@@ -34,7 +35,7 @@
 
 ### Docker 部署
 
-本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了一个示例 `docker-compose.yml`，用于本地一键启动 Postgres、Redis、MinIO 以及三个服务。
+本项目包含三个可运行的 Go 服务（user-service、forum-service、audit-service），并在 `docker/` 下提供了一个示例 `docker-compose.service.yml`，用于本地一键启动 Postgres、Redis、MinIO 以及三个服务。
 
 快速开始（任意目录均可，相对位置调用脚本即可）：
 
@@ -58,6 +59,11 @@ docker ps
 停止容器并清理：
 
 ```bash
-# 停止服务容器, 自动删除容器和.env
-docker compose -p backend down
+# 停止服务容器, 自动删除容器和.env, -v 参数删除数据库挂载卷，--rmi local参数删除本地构建的image
+./bin/run down
 ```
+
+### kind 本地集群CI测试
+1. `kind create cluster`创建集群
+    kind为容器嵌套结构，使用容器来代替一个具核node，目前已知在linux上`kind create cluster`时kind会将proxy环境变量透传到node中，使得node中一切网络活动失效，影响集群运行，所以应当进入容器取消环境变量或直接关闭代理，使用TUN模式，在Windows+Docker desktop + WSL2平台可直接在cmd中使用集群创建指令，而不会有网络代理问题
+

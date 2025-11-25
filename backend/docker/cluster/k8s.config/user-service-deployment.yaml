@@ -25,6 +25,7 @@ spec:
             - name: GIN_MODE
               value: release
           image: user-service
+          imagePullPolicy: IfNotPresent
           name: user-service
           ports:
             - containerPort: 8081

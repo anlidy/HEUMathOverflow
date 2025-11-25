@@ -54,7 +54,7 @@ services:
         EXPOSE_PORT: 8082
     tty: true         # 给容器分配伪终端（-t）
     volumes:
-      - go-build:/root/.cache/go-build:ro
+      - go-build:/root/.cache/go-build:rw
       - go-mod:/go/pkg/mod:rw
     environment:
       GIN_MODE: release
@@ -94,7 +94,7 @@ services:
         EXPOSE_PORT: 8083
     tty: true         # 给容器分配伪终端（-t）
     volumes:
-      - go-build:/root/.cache/go-build:ro
+      - go-build:/root/.cache/go-build:rw
       - go-mod:/go/pkg/mod:rw
     environment:
       GIN_MODE: release
