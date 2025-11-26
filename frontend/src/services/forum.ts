@@ -3,9 +3,10 @@ import type {
     GetPostsParams,
     GetPostsResponse,
     GetPostDetailResponse,
-    GetRepliesResponse,
     CreatePostRequest,
     CreatePostResponse,
+    GetRepliesParams,
+    GetRepliesResponse,
     CreateReplyRequest,
     CreateReplyResponse,
     LikeResponse,
@@ -17,13 +18,12 @@ import type {
 export const forumApi = {
     // 获取帖子列表
     getPosts: (params?: GetPostsParams): Promise<GetPostsResponse> => {
-        //
-        return request.get('/api/v1/forum/posts')
+        return request.get('/api/v1/forum/posts', params ? ({ params } as any) : undefined)
     },
 
     // 获取帖子详情
-    getPostDetail: (id: number): Promise<GetPostDetailResponse> => {
-        return request.get(`/api/v1/forum/posts/${id}`)
+    getPostDetail: (postId: string): Promise<GetPostDetailResponse> => {
+        return request.get(`/api/v1/forum/posts/${postId}`)
     },
 
     // 创建帖子
@@ -32,48 +32,62 @@ export const forumApi = {
     },
 
     // 更新帖子
-    updatePost: (id: number, data: Partial<CreatePostRequest>): Promise<any> => {
-        return request.put(`/api/v1/forum/posts/${id}`, data)
+    updatePost: (postId: string, data: Partial<CreatePostRequest>): Promise<CreatePostResponse> => {
+        return request.patch(`/api/v1/forum/posts/${postId}`, data)
     },
 
     // 删除帖子
-    deletePost: (id: number): Promise<any> => {
-        return request.delete(`/api/v1/forum/posts/${id}`)
+    deletePost: (postId: string): Promise<void> => {
+        return request.delete(`/api/v1/forum/posts/${postId}`)
     },
 
     // 获取回复列表
-    getReplies: (postId: number, params?: any): Promise<GetRepliesResponse> => {
-        //
-        return request.get(`/api/v1/forum/posts/${postId}/replies`)
+    getReplies: (postId: string, params?: GetRepliesParams): Promise<GetRepliesResponse> => {
+        return request.get(`/api/v1/forum/posts/${postId}/replies`, params ? ({ params } as any) : undefined)
     },
 
     // 创建回复
-    createReply: (postId: number, data: CreateReplyRequest): Promise<CreateReplyResponse> => {
+    createReply: (postId: string, data: CreateReplyRequest): Promise<CreateReplyResponse> => {
         return request.post(`/api/v1/forum/posts/${postId}/replies`, data)
     },
 
-    // 点赞/取消点赞
-    likePost: (id: number): Promise<LikeResponse> => {
-        return request.post(`/api/v1/forum/posts/${id}/like`)
+    // 更新回复
+    updateReply: (postId: string, replyId: string, data: Partial<CreateReplyRequest>): Promise<CreateReplyResponse> => {
+        return request.patch(`/api/v1/forum/posts/${postId}/replies/${replyId}`, data)
     },
 
-    likeReply: (id: number): Promise<LikeResponse> => {
-        return request.post(`/api/v1/forum/replies/${id}/like`)
+    // 删除回复
+    deleteReply: (postId: string, replyId: string): Promise<void> => {
+        return request.delete(`/api/v1/forum/posts/${postId}/replies/${replyId}`)
     },
 
-    // 收藏/取消收藏
-    bookmarkPost: (id: number): Promise<BookmarkResponse> => {
-        return request.post(`/api/v1/forum/posts/${id}/bookmark`)
+    // 点赞/取消点赞帖子
+    likePost: (postId: string): Promise<LikeResponse> => {
+        return request.post(`/api/v1/forum/posts/${postId}/like`)
+    },
+
+    // 点赞/取消点赞回复
+    likeReply: (postId: string, replyId: string): Promise<LikeResponse> => {
+        return request.post(`/api/v1/forum/posts/${postId}/replies/${replyId}/like`)
+    },
+
+    // 收藏/取消收藏帖子
+    bookmarkPost: (postId: string): Promise<BookmarkResponse> => {
+        return request.post(`/api/v1/forum/posts/${postId}/bookmark`)
     },
 
     // 获取收藏列表
-    getBookmarks: (params?: { page?: number; limit?: number }): Promise<GetBookmarksResponse> => {
-        //
-        return request.get('/api/v1/forum/bookmarks')
+    getBookmarks: (params?: GetPostsParams): Promise<GetBookmarksResponse> => {
+        return request.get('/api/v1/forum/bookmarks', params ? ({ params } as any) : undefined)
     },
 
-    // 获取所有标签
+    // 获取标签列表
     getTags: (): Promise<GetTagsResponse> => {
         return request.get('/api/v1/forum/tags')
+    },
+
+    // 认证回复（标记为最佳答案）
+    certifyReply: (postId: string, replyId: string): Promise<CreateReplyResponse> => {
+        return request.post(`/api/v1/forum/posts/${postId}/replies/${replyId}/certify`)
     },
 }

@@ -2,7 +2,7 @@ import type { Response } from './common'
 
 // 作者信息
 export interface Author {
-    id: number
+    id: string
     username: string
     avatar?: string
     role: string
@@ -10,7 +10,7 @@ export interface Author {
 
 // 帖子信息
 export interface Post {
-    id: number
+    id: string
     title: string
     content: string
     tags: string[]
@@ -30,11 +30,11 @@ export interface Post {
 
 // 回复信息
 export interface Reply {
-    id: number
+    id: string
     content: string
     author: Author
-    parentId?: number
-    postId: number
+    parentId?: string
+    postId: string
     status: 'pending' | 'approved' | 'rejected'
     isAnonymous: boolean
     isCertified: boolean
@@ -71,7 +71,7 @@ export interface CreatePostRequest {
 // 创建回复请求
 export interface CreateReplyRequest {
     content: string
-    parentId?: number
+    parentId?: string
     isAnonymous?: boolean
 }
 
