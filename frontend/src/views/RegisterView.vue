@@ -2,18 +2,19 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/useUserStore'
-import type { FormInst, FormRules } from 'naive-ui'
-import { PersonOutline, LockClosedOutline, MailOutline } from '@vicons/ionicons5'
+import { PersonOutline, MailOutline, LockClosedOutline, LogoGithub, LogoApple } from '@vicons/ionicons5'
 import { useAppMessage } from '@/composables/useMessage'
 import type { AppError } from '@/utils/errorHandler'
+import BaseCard from '@/components/ui/BaseCard.vue'
+import BaseInput from '@/components/ui/BaseInput.vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
+
 const router = useRouter()
 const userStore = useUserStore()
-const { showSuccess, handleError, showError } = useAppMessage()
-// 表单引用和状态
-const formRef = ref<FormInst | null>(null)
+const { showSuccess, handleError } = useAppMessage()
+
 const loading = ref(false)
 
-// 表单数据
 const formData = reactive({
     username: '',
     email: '',
@@ -21,50 +22,60 @@ const formData = reactive({
     confirm_password: '',
 })
 
-// 自定义验证函数：确认密码
-const validatePasswordSame = (_rule: any, value: string) => {
-    if (value && value !== formData.password) {
-        return new Error('两次输入的密码不一致')
+const errors = reactive({
+    username: '',
+    email: '',
+    password: '',
+    confirm_password: '',
+})
+
+const validate = () => {
+    let isValid = true
+    // Reset errors
+    Object.keys(errors).forEach(key => (errors as any)[key] = '')
+
+    if (!formData.username) {
+        errors.username = '请输入用户名'
+        isValid = false
+    } else if (formData.username.length < 3) {
+        errors.username = '用户名至少3个字符'
+        isValid = false
     }
-    return true
+
+    if (!formData.email) {
+        errors.email = '请输入邮箱'
+        isValid = false
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        errors.email = '请输入正确的邮箱格式'
+        isValid = false
+    }
+
+    if (!formData.password) {
+        errors.password = '请输入密码'
+        isValid = false
+    } else if (formData.password.length < 6) {
+        errors.password = '密码至少6位'
+        isValid = false
+    }
+
+    if (formData.password !== formData.confirm_password) {
+        errors.confirm_password = '两次密码输入不一致'
+        isValid = false
+    }
+
+    return isValid
 }
 
-// 表单验证规则
-const rules: FormRules = {
-    username: [
-        { required: true, message: '请输入用户名', trigger: ['blur', 'input'] },
-        { min: 3, max: 50, message: '用户名长度应在3-50个字符之间', trigger: ['blur', 'input'] },
-    ],
-    email: [
-        { required: true, message: '请输入邮箱', trigger: ['blur', 'input'] },
-        { type: 'email', max: 100, message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
-    ],
-    password: [
-        { required: true, message: '请输入密码', trigger: ['blur', 'input'] },
-        { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: ['blur', 'input'] },
-    ],
-    confirm_password: [
-        { required: true, message: '请再次输入密码', trigger: ['blur', 'input'] },
-        { validator: validatePasswordSame, trigger: ['blur', 'input'] },
-    ],
-}
+const handleSubmit = async () => {
+    if (!validate()) return
 
-// 处理注册提交
-const handleSubmit = async (e: Event) => {
-    e.preventDefault()
     try {
-        // 表单验证
-        await formRef.value?.validate()
-        // 设置加载状态
         loading.value = true
-        // 调用注册动作
         await userStore.register(formData)
         showSuccess('注册成功！')
         router.push('/')
     } catch (error) {
-        // 表单验证失败，Naive UI 会自动显示错误信息
         if (error && typeof error === 'object' && 'type' in error) {
-            // AppError错误，使用统一错误处理
             handleError(error as AppError)
         }
     } finally {
@@ -74,65 +85,87 @@ const handleSubmit = async (e: Event) => {
 </script>
 
 <template>
-    <n-flex vertical class="mx-auto h-screen w-screen items-center bg-cyan-40">
-        <n-flex justify="center" class="h-[161px] w-full items-center">
-            <img src="@/assets/images/hrbeu-banner.png" class="h-[161px] w-[405px]" />
-        </n-flex>
-        <n-flex vertical class="aspect-2/3 h-[600px] p-4">
-            <div class="text-center text-2xl font-bold">注册</div>
-            <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleSubmit" class="mt-4">
-                <n-form-item path="username" label="用户名" class="[&_.n-form-item-label]:font-medium">
-                    <n-input v-model:value="formData.username" placeholder="请输入用户名" :input-props="{ autocomplete: 'username' }">
-                        <template #prefix>
-                            <n-icon :component="PersonOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item path="email" label="邮箱" class="[&_.n-form-item-label]:font-medium">
-                    <n-input v-model:value="formData.email" placeholder="请输入邮箱" :input-props="{ autocomplete: 'email' }">
-                        <template #prefix>
-                            <n-icon :component="MailOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item path="password" label="密码" class="[&_.n-form-item-label]:font-medium">
-                    <n-input
-                        v-model:value="formData.password"
-                        type="password"
-                        placeholder="请输入密码"
-                        show-password-on="click"
-                        :input-props="{ autocomplete: 'new-password' }"
-                        @keydown.enter="handleSubmit">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item path="confirm_password" label="确认密码" class="[&_.n-form-item-label]:font-medium">
-                    <n-input
-                        v-model:value="formData.confirm_password"
-                        type="password"
-                        placeholder="请再次输入密码"
-                        show-password-on="click"
-                        :input-props="{ autocomplete: 'new-password' }"
-                        @keydown.enter="handleSubmit">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item>
-                    <n-button default size="large" :block="true" :loading="loading" @click="handleSubmit" attr-type="submit" class="w-full">
-                        {{ loading ? '注册中...' : '注册' }}
-                    </n-button>
-                </n-form-item>
-            </n-form>
-        </n-flex>
-    </n-flex>
+    <div class="min-h-screen w-full flex items-center justify-center bg-[#faf9f5] p-4">
+        <BaseCard class="max-w-[380px]">
+             <div class="mb-8 text-center">
+                <p class="text-gray-500 text-sm">创建一个新账户</p>
+            </div>
+
+            <form @submit.prevent="handleSubmit" class="space-y-4">
+                 <BaseInput
+                    v-model="formData.username"
+                    placeholder="请输入用户名"
+                    :error="errors.username"
+                    autocomplete="username"
+                >
+                    <template #prefix>
+                        <PersonOutline class="w-5 h-5" />
+                    </template>
+                </BaseInput>
+
+                <BaseInput
+                    v-model="formData.email"
+                    placeholder="请输入邮箱"
+                    :error="errors.email"
+                    autocomplete="email"
+                >
+                    <template #prefix>
+                        <MailOutline class="w-5 h-5" />
+                    </template>
+                </BaseInput>
+
+                <BaseInput
+                    v-model="formData.password"
+                    type="password"
+                    placeholder="请输入密码"
+                    :error="errors.password"
+                    autocomplete="new-password"
+                >
+                    <template #prefix>
+                        <LockClosedOutline class="w-5 h-5" />
+                    </template>
+                </BaseInput>
+
+                <BaseInput
+                    v-model="formData.confirm_password"
+                    type="password"
+                    placeholder="请再次输入密码"
+                    :error="errors.confirm_password"
+                    autocomplete="new-password"
+                    @keydown.enter="handleSubmit"
+                >
+                    <template #prefix>
+                        <LockClosedOutline class="w-5 h-5" />
+                    </template>
+                </BaseInput>
+
+                <BaseButton 
+                    type="submit" 
+                    block 
+                    :loading="loading"
+                    class="mt-2"
+                >
+                    注册
+                </BaseButton>
+            </form>
+
+            <div class="mt-8">
+                <div class="relative">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-gray-100"></div>
+                    </div>
+                    <div class="relative flex justify-center text-xs uppercase">
+                        <span class="bg-white px-2 text-gray-400">其他方式注册</span>
+                    </div>
+                </div>
+
+                <div class="mt-8 text-center">
+                     <router-link to="/" class="text-sm font-medium text-gray-900 hover:underline">
+                        已有账号？立即登录
+                     </router-link>
+                </div>
+            </div>
+        </BaseCard>
+    </div>
 </template>
 
-<style scoped>
-:deep(.n-form-item-label) {
-    font-weight: 500;
-}
-</style>

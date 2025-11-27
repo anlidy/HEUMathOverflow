@@ -22,8 +22,8 @@ const handleTopicSelect = (topic: TopicItem) => {
 </script>
 
 <template>
-    <div class="flex min-h-screen w-full flex-col overflow-x-hidden overflow-y-auto bg-white">
-        <header class="flex h-[50px] w-full items-center border-b border-gray-200 bg-white">
+    <div class="flex min-h-screen w-full flex-col overflow-x-hidden overflow-y-auto bg-[#faf9f5]">
+        <header class="flex h-[50px] w-full items-center border-b border-gray-200">
             <div class="mx-auto flex w-full max-w-[1200px] items-center justify-between px-4">
                 <div class="flex items-center justify-start gap-2">
                     <Logo />
