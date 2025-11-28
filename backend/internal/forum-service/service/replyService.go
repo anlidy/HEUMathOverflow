@@ -236,6 +236,8 @@ func (s *replyService) GetManyReplies(ctx context.Context, postID int64, offset,
 			return nil, syserror.InternalError
 		case codes.NotFound:
 			return nil, syserror.NotFoundError
+		default:
+			log.Println(st.Message())
 		}
 	}
 	// 请求成功
