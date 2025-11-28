@@ -1,0 +1,11 @@
+apiVersion: v1
+data:
+  timezone: |
+    Asia/Shanghai
+kind: ConfigMap
+metadata:
+  annotations:
+    use-subpath: "true"
+  labels:
+    io.kompose.service: redis
+  name: redis-cm1

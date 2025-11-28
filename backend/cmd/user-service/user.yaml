@@ -5,8 +5,8 @@ server:
 postgres:
   host: postgres
   port: 5432
-  user: postgres
-  password: postgres
+  user: user_service_user
+  password: user_service_pass
   dbname: user_db
   sslmode: disable
 
@@ -24,4 +24,4 @@ redis:
   db: 0
 
 grpc:
-  serv_port: 50051
+  expose_port: 50051

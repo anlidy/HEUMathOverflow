@@ -15,12 +15,13 @@ import (
 type ReplyRepo interface {
 	CreateReply(reply *model.Reply) error
 	FindReplyByID(replyID int64) (model.Reply, error)
+	FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error)
 	UpdateColumn(replyID int64, column string, value any) (bool, error)
 	UpdateReply(reply *model.Reply) (bool, error)
 	DeleteReply(replyID int64) error
 	/// mongo
 	MCreateReply(ctx context.Context, reply *model.ReplyContent) (primitive.ObjectID, error)
-	MFindReply(ctx context.Context, filter bson.M) (*model.ReplyContent, error)
+	MFindReply(ctx context.Context, filter bson.M) (model.ReplyContent, error)
 	MFindAllReply(ctx context.Context, filter bson.M) ([]model.ReplyContent, error)
 	MUpdateReply(ctx context.Context, query bson.M, update bson.D) (bool, error)
 	MDeleteReply(ctx context.Context, query bson.M) error
@@ -49,7 +50,14 @@ func (r *replyRepo) FindReplyByID(replyID int64) (model.Reply, error) {
 	return result, err
 }
 
-// 更新一列
+// pg根据postID,offset,limit查询多个回帖
+func (r *replyRepo) FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error) {
+	var results []model.Reply
+	err := r.pg.Where("post_id = ?", postID).Offset(offset).Limit(limit).Find(&results).Error
+	return results, err
+}
+
+// pg更新一列
 func (r *replyRepo) UpdateColumn(replyID int64, column string, value any) (bool, error) {
 	result := r.pg.Model(&model.Reply{}).Where("id = ?", replyID).Update(column, value)
 	if result.Error != nil {
@@ -58,7 +66,7 @@ func (r *replyRepo) UpdateColumn(replyID int64, column string, value any) (bool,
 	return result.RowsAffected > 0, nil
 }
 
-// 更新一个回帖
+// pg更新一个回帖
 func (r *replyRepo) UpdateReply(reply *model.Reply) (bool, error) {
 	result := r.pg.Model(&model.Reply{}).Where("id = ?", reply.ID).Updates(reply)
 	if result.Error != nil {
@@ -67,7 +75,7 @@ func (r *replyRepo) UpdateReply(reply *model.Reply) (bool, error) {
 	return result.RowsAffected > 0, nil
 }
 
-// 删除一个回帖
+// pg删除一个回帖
 func (r *replyRepo) DeleteReply(replyID int64) error {
 	return r.pg.Where("id = ?", replyID).Delete(&model.Reply{}).Error
 }
@@ -82,17 +90,17 @@ func (r *replyRepo) DeleteAllReplies(postID int64) error {
 func (r *replyRepo) MCreateReply(ctx context.Context, reply *model.ReplyContent) (primitive.ObjectID, error) {
 	result, err := r.replies.InsertOne(ctx, reply)
 	if err != nil {
-		return primitive.ObjectID{}, err
+		return primitive.ObjectID{}, fmt.Errorf("mongo: %v", err)
 	}
 	return result.InsertedID.(primitive.ObjectID), nil
 }
 
 // 查找一个回帖
-func (r *replyRepo) MFindReply(ctx context.Context, filter bson.M) (*model.ReplyContent, error) {
-	var reply *model.ReplyContent
+func (r *replyRepo) MFindReply(ctx context.Context, filter bson.M) (model.ReplyContent, error) {
+	var reply model.ReplyContent
 	err := r.replies.FindOne(ctx, filter).Decode(reply)
 	if err != nil {
-		return nil, err
+		return reply, fmt.Errorf("mongo: %v", err)
 	}
 	return reply, nil
 }
@@ -102,14 +110,14 @@ func (r *replyRepo) MFindAllReply(ctx context.Context, filter bson.M) ([]model.R
 	// 执行查询
 	cursor, err := r.replies.Find(ctx, filter)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mongo: %v", err)
 	}
 	defer cursor.Close(ctx)
 
 	// 遍历结果
 	var results []model.ReplyContent
 	if err = cursor.All(ctx, &results); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mongo: %v", err)
 	}
 	return results, nil
 }
@@ -118,11 +126,11 @@ func (r *replyRepo) MFindAllReply(ctx context.Context, filter bson.M) ([]model.R
 func (r *replyRepo) MUpdateReply(ctx context.Context, query bson.M, update bson.D) (bool, error) {
 	result, err := r.replies.UpdateOne(ctx, query, update, options.Update().SetUpsert(false))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("mongo: %v", err)
 	}
 	// 检查匹配情况
 	if result.MatchedCount == 0 {
-		return false, fmt.Errorf("未找到要更新的回帖内容")
+		return false, fmt.Errorf("mongo: 未找到要更新的回帖内容")
 	}
 	return result.ModifiedCount > 0, nil
 }
@@ -131,10 +139,10 @@ func (r *replyRepo) MUpdateReply(ctx context.Context, query bson.M, update bson.
 func (r *replyRepo) MDeleteReply(ctx context.Context, query bson.M) error {
 	result, err := r.replies.DeleteOne(ctx, query)
 	if err != nil {
-		return err
+		return fmt.Errorf("mongo: %v", err)
 	}
 	if result.DeletedCount == 0 {
-		return fmt.Errorf("未找到要删除的回帖内容")
+		return fmt.Errorf("mongo: 未找到要删除的回帖内容")
 	}
 	return nil
 }
@@ -143,10 +151,10 @@ func (r *replyRepo) MDeleteReply(ctx context.Context, query bson.M) error {
 func (r *replyRepo) MDeleteAllReplies(ctx context.Context, query bson.M) error {
 	result, err := r.replies.DeleteMany(ctx, query)
 	if err != nil {
-		return err
+		return fmt.Errorf("mongo: %v", err)
 	}
 	if result.DeletedCount == 0 {
-		return fmt.Errorf("未找到要删除的回帖内容")
+		return fmt.Errorf("mongo: 未找到要删除的回帖内容")
 	}
 	return nil
 }

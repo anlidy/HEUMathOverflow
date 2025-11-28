@@ -1,3 +1,25 @@
-CREATE DATABASE user_db;    -- user-service
-CREATE DATABASE forum_db;   -- forum-service
-CREATE DATABASE audit_db;   -- audit-service
+-- 创建用户并设置密码
+CREATE USER user_service_user WITH PASSWORD 'user_service_pass';
+CREATE USER forum_service_user WITH PASSWORD 'forum_service_pass';
+CREATE USER audit_service_user WITH PASSWORD 'audit_service_pass';
+
+-- 创建数据库
+CREATE DATABASE user_db;
+CREATE DATABASE forum_db;
+CREATE DATABASE audit_db;
+
+-- 授权用户访问对应数据库
+GRANT ALL PRIVILEGES ON DATABASE user_db TO user_service_user;
+GRANT ALL PRIVILEGES ON DATABASE forum_db TO forum_service_user;
+GRANT ALL PRIVILEGES ON DATABASE audit_db TO audit_service_user;
+
+
+-- 为各自的 schema 授权（进入数据库内部）
+\connect user_db;
+GRANT ALL ON SCHEMA public TO user_service_user;
+
+\connect forum_db;
+GRANT ALL ON SCHEMA public TO forum_service_user;
+
+\connect audit_db;
+GRANT ALL ON SCHEMA public TO audit_service_user;

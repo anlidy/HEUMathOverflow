@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+# 编译user.proto
+protoc --go_out=. --go-grpc_out=. ./backend/api/user/user.proto

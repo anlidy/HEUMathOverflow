@@ -5,7 +5,8 @@ option go_package = "backend/proto/user;userpb";
 
 // 用户服务接口定义
 service UserService {
-  rpc GetUserInfo (GetUserRequest) returns (GetUserResponse);
+  rpc GetUserInfo (GetUserRequest) returns (GetUserResponse); // 单查用户信息
+  rpc BatchGetUserInfo (BatchGetUserRequest) returns (BatchGetUserResponse); // 批量查用户信息
 }
 
 // 请求与响应结构
@@ -18,4 +19,14 @@ message GetUserResponse {
   string username = 2;
   int64 role = 3;     // x64平台的int == int64
   string avatar_url = 4;
+}
+
+// 批量查：传多个 id
+message BatchGetUserRequest {
+  repeated int64 user_ids = 1;   // 数组
+}
+
+// 批量查：返回多个用户结构
+message BatchGetUserResponse {
+  map<int64, GetUserResponse> users = 1;
 }

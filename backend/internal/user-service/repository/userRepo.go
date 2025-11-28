@@ -9,6 +9,7 @@ import (
 type UserRepo interface {
 	CreateUser(user *model.User) error
 	FindUserByID(userID int64) (model.User, error)
+	BatchFindUserByID(userIDs []int64) ([]model.User, error)
 	FindUserByEmail(email string) (model.User, error)
 	FindUserByUsername(username string) (model.User, error)
 	UpdateColumn(userID int64, column string, value any) (bool, error)
@@ -35,6 +36,13 @@ func (r *userRepo) FindUserByID(userID int64) (model.User, error) {
 	var result model.User
 	err := r.pg.Where("id = ?", userID).First(&result).Error
 	return result, err
+}
+
+// 根据用户id批量查询Users
+func (r *userRepo) BatchFindUserByID(userIDs []int64) ([]model.User, error) {
+	var users []model.User
+	err := r.pg.Where("id IN ?", userIDs).Find(&users).Error
+	return users, err
 }
 
 // 根据用户email查询User

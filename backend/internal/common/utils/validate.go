@@ -10,6 +10,7 @@ import (
 var (
 	emailRegex = regexp.MustCompile(config.EmailPattern) // 邮箱正则
 	imageRegex = regexp.MustCompile(config.ImagePattern) // 图像正则
+	fileRegex  = regexp.MustCompile(config.FilePattern)  // 文件正则
 )
 
 // 验证邮箱是否合法
@@ -27,4 +28,9 @@ func IsValidImage(filename string) bool {
 func ValidatePassword(hashedPassword, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 	return err == nil
+}
+
+// 验证是否为允许的文件类型
+func IsAllowedFile(filename string) bool {
+	return fileRegex.MatchString(filename)
 }
