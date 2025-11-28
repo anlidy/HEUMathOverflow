@@ -28,6 +28,7 @@ import (
 type PostService interface {
 	CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error)
 	GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
+	UpdateOnePost(ctx context.Context, userID int64, postID int64, req request.PostUpdate) syserror.Error
 }
 
 type postService struct {
@@ -75,7 +76,7 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 
 	// 将临时url提升为正式url
 	var images = []string{}
-	for _, tmpUrl := range req.ImageURL {
+	for _, tmpUrl := range req.ImageURLs {
 		newUrl, err := s.fileRepo.PromoteFile(ctx, tmpUrl, s.cfg.Minio.Bucket, postID)
 		if err != nil {
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
@@ -180,4 +181,91 @@ func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.U
 	}
 
 	return userInfo, postData, syserror.NoError
+}
+
+// 更新一条帖子
+func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID int64, req request.PostUpdate) syserror.Error {
+	// 查询该条帖子
+	post, err := s.postRepo.FindPostByID(postID)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return syserror.NotFoundError
+		}
+		log.Printf("[%s] %v\n", s.servName, err)
+		return syserror.InternalError
+	}
+	// 验证当前登录的用户是否为该帖子的作者
+	if userID != post.AuthorID {
+		return syserror.PermissionDeniedError
+	}
+
+	// 完成内容修改
+	post.Tags = req.Tags
+	post.Title = req.Title
+
+	// 保存帖子信息
+	_, err = s.postRepo.UpdatePost(&post)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return syserror.NotFoundError
+		}
+		log.Printf("[%s] %v\n", s.servName, err)
+		return syserror.InternalError
+	}
+
+	// 将临时url提升为正式url
+	var addUrls = []string{}
+	for _, tmpUrl := range req.AddImageURLs {
+		newUrl, err := s.fileRepo.PromoteFile(ctx, tmpUrl, s.cfg.Minio.Bucket, postID)
+		if err != nil {
+			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+				return syserror.ResourceExpiredError
+			}
+			log.Printf("[%s] %v\n", s.servName, err)
+			return syserror.InternalError
+		}
+		// 完成添加
+		addUrls = append(addUrls, newUrl)
+	}
+
+	// 保存正文修改
+	update := bson.M{
+		"$set": bson.M{
+			"tags":    req.Tags,
+			"title":   req.Title,
+			"content": req.Content,
+		},
+		"$pull": bson.M{
+			"image_urls": bson.M{"$in": req.DeleteImageURLs},
+		},
+		"$push": bson.M{
+			"image_urls": bson.M{
+				"$each": addUrls,
+			},
+		},
+	}
+	docID, _ := utils.StringToObjectID(post.DocID)
+	_, err = s.postRepo.UpdateOnePost(ctx, bson.M{"_id": docID}, update)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return syserror.NotFoundError
+		}
+		log.Printf("[%s] %v\n", s.servName, err)
+		return syserror.InternalError
+	}
+
+	// 后台删除图片
+	go func() {
+		for _, delUrl := range req.DeleteImageURLs {
+			err := s.fileRepo.DeleteFile(ctx, delUrl)
+			if err != nil {
+				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+					continue
+				}
+				log.Printf("[%s] %v\n", s.servName, err)
+				return
+			}
+		}
+	}()
+	return syserror.NoError
 }

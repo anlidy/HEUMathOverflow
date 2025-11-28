@@ -21,7 +21,7 @@ type PostRepo interface {
 	// mongo
 	CreateOnePost(ctx context.Context, post *model.PostContent) (primitive.ObjectID, error)
 	FindOnePost(ctx context.Context, filter bson.M) (model.PostContent, error)
-	UpdateOnePost(ctx context.Context, query bson.M, update bson.D) (bool, error)
+	UpdateOnePost(ctx context.Context, query bson.M, update interface{}) (bool, error)
 	DeleteOnePost(ctx context.Context, query bson.M) error
 }
 
@@ -91,7 +91,7 @@ func (r *postRepo) FindOnePost(ctx context.Context, filter bson.M) (model.PostCo
 }
 
 // 更新一个帖子
-func (r *postRepo) UpdateOnePost(ctx context.Context, query bson.M, update bson.D) (bool, error) {
+func (r *postRepo) UpdateOnePost(ctx context.Context, query bson.M, update interface{}) (bool, error) {
 	result, err := r.posts.UpdateOne(ctx, query, update, options.Update().SetUpsert(false))
 	if err != nil {
 		return false, fmt.Errorf("mongo: %v", err)
