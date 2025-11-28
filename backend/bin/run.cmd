@@ -25,22 +25,7 @@ if not exist ".env" (
 if "%~1"=="-h" goto :help
 if "%~1"=="--help" goto :help
 
-rem Determine command (default up)
-if "%~1"=="" (
-	set "CMD=up"
-) else (
-	set "CMD=%~1"
-	shift
-)
-
-rem Execute docker compose for the two compose files. For down we run service then base
-if /I "%CMD%"=="down" (
-	docker compose -p backend -f docker-compose.service.yml %CMD% %*
-	docker compose -p backend -f docker-compose.yml %CMD% %*
-) else (
-	docker compose -p backend -f docker-compose.yml %CMD% %*
-	docker compose -p backend -f docker-compose.service.yml %CMD% %*
-)
+docker compose -p backend -f docker-compose.service.yml  %*
 
 popd >nul 2>&1
 endlocal

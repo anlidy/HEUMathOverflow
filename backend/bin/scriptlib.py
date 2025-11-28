@@ -69,7 +69,7 @@ def cd_run(target_dir: Path):
     return decorator
 
 
-def _run(cmd, **kwargs):
+def crun(cmd, **kwargs):
     cprint(f'RUN: {" ".join(cmd)}', color=Colors.BLUE)
     return subprocess.run(cmd, check=True, **kwargs)
 
