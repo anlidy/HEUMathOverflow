@@ -2,6 +2,7 @@
 
 #### 安装依赖库: 
 ```bash
+# 容器部署时由docker自动完成
  cd backend/
  go mod download
 ```
@@ -12,7 +13,7 @@
 
 `/cmd `  各个go服务的启动入口(main.go)
 
-`/docker` docker配置文件
+`/docker` docker及k8s配置文件
 
 `/internal` 程序的内部实现
 
@@ -205,3 +206,8 @@ docker compose -p backend restart
 bin\run.cmd down
 bin\run.cmd up --build -d
 ```
+
+### kind 本地集群CI测试
+1. `kind create cluster`创建集群
+    kind为容器嵌套结构，使用容器来代替一个具核node，目前已知在linux上`kind create cluster`时kind会将proxy环境变量透传到node中，使得node中一切网络活动失效，影响集群运行，所以应当进入容器取消环境变量或直接关闭代理，使用TUN模式，在Windows+Docker desktop + WSL2平台可直接在cmd中使用集群创建指令，而不会有网络代理问题
+

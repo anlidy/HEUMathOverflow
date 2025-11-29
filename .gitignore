@@ -3,3 +3,5 @@
 datareset.sh
 .vscode/*
 node_modules
+.env
+**/__pycache__/**

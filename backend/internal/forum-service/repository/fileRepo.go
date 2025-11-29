@@ -5,7 +5,6 @@ import (
 	common "MathOverflow/internal/common/model"
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -35,7 +34,7 @@ func (r *fileRepo) UploadFile(ctx context.Context, bucket string, file common.Fi
 	if err != nil {
 		return "", err
 	}
-	url := fmt.Sprintf("/api/v1/%s/%s", bucket, file.Filename) // /api/v1/forum/tmp/17302800000.jpg
+	url := fmt.Sprintf("/api/v1/%s/file/%s", bucket, file.Filename) // /api/v1/forum/file/tmp/17302800000.jpg
 	return url, nil
 }
 
@@ -43,11 +42,10 @@ func (r *fileRepo) UploadFile(ctx context.Context, bucket string, file common.Fi
 // hostID可代表postID和replyID
 func (r *fileRepo) PromoteFile(ctx context.Context, tmpURL, bucket string, hostID int64) (string, error) {
 	// 1. 提取对象名，得到 tmp/17302800000.jpg
-	tmpName := strings.TrimPrefix(tmpURL, fmt.Sprintf("api/v1/%s/", bucket))
+	tmpName := strings.TrimPrefix(tmpURL, fmt.Sprintf("/api/v1/%s/file/", bucket))
 
-	// 2. 新路径：forum/{bucket}/{hostID}/{filename}
-	newName := fmt.Sprintf("%s/%d/%s", bucket, hostID, filepath.Base(tmpName))
-
+	// 2. 新名称: {hostID}/{filename}
+	newName := fmt.Sprintf("%d/%s", hostID, filepath.Base(tmpName))
 	// 3. 复制对象
 	src := minio.CopySrcOptions{
 		Bucket: bucket,
@@ -62,14 +60,15 @@ func (r *fileRepo) PromoteFile(ctx context.Context, tmpURL, bucket string, hostI
 		return "", fmt.Errorf("复制失败: %v", err)
 	}
 
-	// 4. 删除旧的 tmp 对象
-	err = r.DeleteFile(ctx, tmpName)
-	if err != nil {
-		log.Printf("删除临时文件失败: %v", err)
-	}
+	/// 保留临时文件,由系统自动清理,防止其他步骤出错导致文件被删除
+	// // 4. 删除旧的 tmp 对象
+	// err = r.DeleteFile(ctx, tmpName)
+	// if err != nil {
+	// 	log.Printf("删除临时文件失败: %v", err)
+	// }
 
-	// 5. 返回新 URL
-	newURL := fmt.Sprintf("/api/v1/%s/%s", bucket, newName)
+	// 返回新 URL
+	newURL := fmt.Sprintf("/api/v1/%s/file/%s", bucket, newName)
 	return newURL, nil
 }
 

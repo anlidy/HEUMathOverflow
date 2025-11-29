@@ -9,6 +9,7 @@ import (
 	"MathOverflow/internal/user-service/model/request"
 	"MathOverflow/internal/user-service/model/response"
 	"MathOverflow/internal/user-service/repository"
+	userpb "MathOverflow/proto/user"
 	"context"
 	"log"
 	"time"
@@ -19,7 +20,8 @@ import (
 
 // 用户服务接口
 type UserService interface {
-	RPCGetUserInfo(ctx context.Context, userID int64) (*response.RPCUserInfo, syserror.Error)
+	RPCGetUserInfo(ctx context.Context, userID int64) (*userpb.GetUserResponse, syserror.Error)
+	RPCBatchGetUserInfo(ctx context.Context, userIDs []int64) (map[int64]*userpb.GetUserResponse, syserror.Error)
 	UserRegister(ctx context.Context, req request.UserRegister) (*model.Session, *response.UserInfo, syserror.Error)
 	UserLogin(ctx context.Context, req request.UserLogin) (*model.Session, *response.UserInfo, syserror.Error)
 	UserUploadAvatar(ctx context.Context, userID int64, file common.File) (string, syserror.Error)
@@ -42,8 +44,8 @@ func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo
 	return &userService{cfg: cfg, userRepo: userRepo, sessionRepo: sessionRepo, fileRepo: fileRepo, servName: "User-Service"}
 }
 
-// 获取用户信息
-func (s *userService) RPCGetUserInfo(ctx context.Context, userID int64) (*response.RPCUserInfo, syserror.Error) {
+// 获取单个用户信息
+func (s *userService) RPCGetUserInfo(ctx context.Context, userID int64) (*userpb.GetUserResponse, syserror.Error) {
 	user, err := s.userRepo.FindUserByID(userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -52,12 +54,35 @@ func (s *userService) RPCGetUserInfo(ctx context.Context, userID int64) (*respon
 		log.Printf("[%s] %v", s.servName, err)
 		return nil, syserror.InternalError
 	}
-	info := &response.RPCUserInfo{}
-	if err := copier.Copy(info, &user); err != nil {
+	info := &userpb.GetUserResponse{
+		UserId:    user.ID,
+		Username:  user.Username,
+		Role:      int64(user.Role),
+		AvatarUrl: user.AvatarUrl,
+	}
+	return info, syserror.NoError
+}
+
+// 批量获取用户信息
+func (s *userService) RPCBatchGetUserInfo(ctx context.Context, userIDs []int64) (map[int64]*userpb.GetUserResponse, syserror.Error) {
+	users, err := s.userRepo.BatchFindUserByID(userIDs)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, syserror.NotFoundError
+		}
 		log.Printf("[%s] %v", s.servName, err)
 		return nil, syserror.InternalError
 	}
-	return info, syserror.NoError
+	infoMap := make(map[int64]*userpb.GetUserResponse, len(users))
+	for _, user := range users {
+		infoMap[user.ID] = &userpb.GetUserResponse{
+			UserId:    user.ID,
+			Username:  user.Username,
+			Role:      int64(user.Role),
+			AvatarUrl: user.AvatarUrl,
+		}
+	}
+	return infoMap, syserror.NoError
 }
 
 // 用户注册
@@ -119,7 +144,7 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 		ID:       user.ID,
 		Username: user.Username,
 		Email:    user.Email,
-		Role:     model.GetRoleName(user.Role),
+		Role:     user.Role,
 	}
 	return session, info, syserror.NoError
 }
@@ -177,7 +202,7 @@ func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (*mo
 		ID:        user.ID,
 		Username:  user.Username,
 		Email:     user.Email,
-		Role:      model.GetRoleName(user.Role),
+		Role:      user.Role,
 		AvatarUrl: user.AvatarUrl,
 	}
 	return session, info, syserror.NoError

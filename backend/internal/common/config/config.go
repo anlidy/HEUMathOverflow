@@ -58,6 +58,7 @@ var (
 	// regex
 	EmailPattern = `^[\w.-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
 	ImagePattern = `(?i)\.(jpg|jpeg|png|bmp)$` // ?i 表示忽略大小写
+	FilePattern  = `(?i)\.(jpg|jpeg|png|bmp|mp3|docx?|pptx?|xlsx?|pdf|zip|rar)$`
 
 	// SnowFlake
 	MachineID = 0

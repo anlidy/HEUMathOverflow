@@ -1,8 +1,16 @@
 package request
 
 type PostCreate struct {
-	Title   string   `json:"title"`
-	Content string   `json:"content" binding:"required"`
-	Images  []string `json:"images"`
-	Tags    []string `json:"tags"`
+	Title     string   `json:"title"`
+	Content   string   `json:"content" binding:"required"`
+	ImageURLs []string `json:"image_urls"`
+	Tags      []string `json:"tags"`
+}
+
+type PostUpdate struct {
+	Title           string   `json:"title"`
+	Content         string   `json:"content" binding:"required"`
+	AddImageURLs    []string `json:"add_image_urls"`
+	DeleteImageURLs []string `json:"delete_image_urls"`
+	Tags            []string `json:"tags"`
 }

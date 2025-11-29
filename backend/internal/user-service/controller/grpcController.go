@@ -22,8 +22,8 @@ func NewUserServer(userService service.UserService) UserServer {
 
 // / gRPC 调用接口
 // 查询用户信息
-func (uc *UserController) GetUserInfo(ctx context.Context, req *userpb.GetUserRequest) (*userpb.GetUserResponse, error) {
-	info, err := uc.userService.RPCGetUserInfo(ctx, req.UserId)
+func (us *UserServer) GetUserInfo(ctx context.Context, req *userpb.GetUserRequest) (*userpb.GetUserResponse, error) {
+	info, err := us.userService.RPCGetUserInfo(ctx, req.UserId)
 	switch err {
 	case syserror.NotFoundError:
 		return nil, status.Error(codes.NotFound, "user not found")
@@ -31,11 +31,20 @@ func (uc *UserController) GetUserInfo(ctx context.Context, req *userpb.GetUserRe
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 	// 正常返回
-	var resp = &userpb.GetUserResponse{
-		UserId:    info.ID,
-		Username:  info.Username,
-		Role:      int64(info.Role), // x64平台的int == int64
-		AvatarUrl: info.AvatarUrl,
+	return info, nil
+}
+
+func (us *UserServer) BatchGetUserInfo(ctx context.Context, req *userpb.BatchGetUserRequest) (*userpb.BatchGetUserResponse, error) {
+	infoMap, err := us.userService.RPCBatchGetUserInfo(ctx, req.UserIds)
+	switch err {
+	case syserror.NotFoundError:
+		return nil, status.Error(codes.NotFound, "user not found")
+	case syserror.InternalError:
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+	// 正常返回
+	var resp = &userpb.BatchGetUserResponse{
+		Users: infoMap,
 	}
 	return resp, nil
 }

@@ -4,13 +4,13 @@ server:
 postgres:
   host: postgres
   port: 5432
-  user: forum_user
-  password: forum_pass
+  user: forum_service_user
+  password: forum_service_pass
   dbname: forum_db
   sslmode: disable
 
 mongodb:
-  uri: mongodb://mongo:27017
+  uri: mongodb://mongoadmin:mongoadmin@mongodb:27017/?authSource=admin
   database: forum_content
 
 minio:
@@ -21,6 +21,11 @@ minio:
   use_ssl: false
   clean_tmp: true
   clean_cycle_days: 1
+
+redis:
+  addr: redis:6379
+  password: ""
+  db: 0
 
 grpc:
   expose_port:  50052
