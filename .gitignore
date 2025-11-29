@@ -2,3 +2,4 @@
 /backend/docker/**/data/**
 datareset.sh
 .vscode/*
+node_modules
