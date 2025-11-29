@@ -1,132 +1,144 @@
 <script setup lang="ts">
-import { ref, reactive, onUnmounted, onActivated } from 'vue'
-import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import { ref, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/useUserStore'
-import type { FormInst, FormRules } from 'naive-ui'
-import { PersonOutline, LockClosedOutline } from '@vicons/ionicons5'
+import { PersonOutline, LockClosedOutline, LogoGithub, LogoApple } from '@vicons/ionicons5'
 import { useAppMessage } from '@/composables/useMessage'
 import type { AppError } from '@/utils/errorHandler'
+import BaseCard from '@/components/ui/BaseCard.vue'
+import BaseInput from '@/components/ui/BaseInput.vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
 const { handleError, showSuccess } = useAppMessage()
 
-// 表单引用和状态
-const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 
-// 表单数据
 const formData = reactive({
     email: '',
     password: '',
     remember: false,
 })
 
-// 表单验证规则
-const rules: FormRules = {
-    email: [
-        { required: true, message: '请输入邮箱', trigger: ['blur', 'input'] },
-        { type: 'email', max: 100, message: '请输入正确的邮箱', trigger: ['blur', 'input'] },
-    ],
-    password: [
-        { required: true, message: '请输入密码', trigger: ['blur', 'input'] },
-        { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: ['blur', 'input'] },
-    ],
+const errors = reactive({
+    email: '',
+    password: ''
+})
+
+const validate = () => {
+    let isValid = true
+    errors.email = ''
+    errors.password = ''
+
+    if (!formData.email) {
+        errors.email = '请输入邮箱'
+        isValid = false
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        errors.email = '请输入正确的邮箱格式'
+        isValid = false
+    }
+
+    if (!formData.password) {
+        errors.password = '请输入密码'
+        isValid = false
+    } else if (formData.password.length < 6) {
+        errors.password = '密码长度不能少于6位'
+        isValid = false
+    }
+
+    return isValid
 }
 
-// 处理登录提交
-const handleSubmit = async (e: Event) => {
-    e.preventDefault()
+const handleSubmit = async () => {
+    if (!validate()) return
+
     try {
-        // 表单验证
-        await formRef.value?.validate()
         loading.value = true
-        
-        // 调用登录接口
         await userStore.login(formData)
-        
-        // 登录成功，显示成功消息并跳转
         showSuccess('登录成功！')
         router.push('/')
     } catch (error) {
-        // 如果是表单验证错误，Naive UI会自动显示错误信息，不需要额外处理
         if (error && typeof error === 'object' && 'type' in error) {
-            // AppError错误，使用统一错误处理
             handleError(error as AppError)
         }
-        // 其他错误（如表单验证错误）静默处理，因为Naive UI会自动显示
     } finally {
         loading.value = false
     }
 }
-
-const resetForm = () => {
-    formData.email = ''
-    formData.password = ''
-    formData.remember = false
-    formRef.value?.restoreValidation()
-}
-
-onBeforeRouteLeave((to, from) => {
-    resetForm()
-})
-
-onUnmounted(() => {
-    resetForm()
-})
-onActivated(() => {
-    resetForm()
-})
 </script>
 
 <template>
-    <n-flex vertical class="mx-auto h-screen w-screen items-center bg-cyan-40">
-        <n-flex justify="center" class="h-[161px] w-full items-center">
-            <img src="@/assets/images/hrbeu-banner.png" class="h-[161px] w-[405px]" />
-        </n-flex>
-        <n-flex vertical class="aspect-2/3 h-[600px] p-4">
-            <div class="text-center text-2xl font-bold">登录</div>
-            <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleSubmit" class="mt-4">
-                <n-form-item path="email" label="邮箱" class="[&_.n-form-item-label]:font-medium">
-                    <n-input v-model:value="formData.email" placeholder="请输入邮箱" :input-props="{ autocomplete: 'email' }">
-                        <template #prefix>
-                            <n-icon :component="PersonOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item path="password" label="密码" class="[&_.n-form-item-label]:font-medium">
-                    <n-input
-                        v-model:value="formData.password"
-                        type="password"
-                        placeholder="请输入密码"
-                        show-password-on="click"
-                        @keydown.enter="handleSubmit">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <div class="flex items-center justify-between">
-                    <n-checkbox v-model:checked="formData.remember">记住我</n-checkbox>
-                    <a href="/forgot-password" class="ml-2 text-sm text-gray-500">忘记密码?</a>
-                </div>
-                <n-form-item :show-label="false" class="mt-4">
-                    <n-button default size="large" :block="true" :loading="loading" @click="handleSubmit" attr-type="submit" class="w-full">
-                        {{ loading ? '登录中...' : '登录' }}
-                    </n-button>
-                </n-form-item>
-            </n-form>
-            <n-divider :style="{ margin: '0' }">或</n-divider>
-
-            <div class="mt-4">
-                <n-button tertiary type="primary" :block="true" @click="$router.push('/register')" class="w-full">注册新账户</n-button>
+    <div class="min-h-screen w-full flex items-center justify-center bg-[#faf9f5] p-4">
+        <BaseCard class="max-w-[380px]">
+            <div class="mb-8 text-center">
+                <p class="text-gray-500 text-sm">欢迎回来，请登录您的账户</p>
             </div>
-        </n-flex>
-    </n-flex>
+
+            <form @submit.prevent="handleSubmit" class="space-y-5">
+                <BaseInput
+                    v-model="formData.email"
+                    placeholder="请输入邮箱"
+                    :error="errors.email"
+                    autocomplete="email"
+                >
+                    <template #prefix>
+                        <PersonOutline class="w-5 h-5" />
+                    </template>
+                </BaseInput>
+
+                <BaseInput
+                    v-model="formData.password"
+                    type="password"
+                    placeholder="请输入密码"
+                    :error="errors.password"
+                    autocomplete="current-password"
+                    @keydown.enter="handleSubmit"
+                >
+                    <template #prefix>
+                        <LockClosedOutline class="w-5 h-5" />
+                    </template>
+                </BaseInput>
+
+                <BaseButton 
+                    type="submit" 
+                    block 
+                    :loading="loading"
+                >
+                    登录
+                </BaseButton>
+                
+                <div class="flex items-center justify-between text-sm">
+                    <label class="flex items-center gap-2 text-gray-600 cursor-pointer select-none hover:text-gray-900">
+                        <input type="checkbox" v-model="formData.remember" class="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900">
+                        <span>记住我</span>
+                    </label>
+                    <a href="#" class="text-gray-500 hover:text-gray-900 transition-colors">忘记密码？</a>
+                </div>
+            </form>
+
+            <div class="mt-8">
+                <div class="relative">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-gray-100"></div>
+                    </div>
+                    <div class="relative flex justify-center text-xs uppercase">
+                        <span class="bg-white px-2 text-gray-400">其他方式登录</span>
+                    </div>
+                </div>
+
+                <div class="mt-8 text-center">
+                     <router-link to="/register" class="text-sm font-medium text-gray-900 hover:underline">
+                        没有账号？立即注册
+                     </router-link>
+                </div>
+                
+                <div class="mt-6 text-center text-xs text-gray-400 leading-relaxed">
+                    注册或登录即代表您同意<br>
+                    <a href="#" class="hover:text-gray-600 hover:underline">用户协议</a> 和 <a href="#" class="hover:text-gray-600 hover:underline">隐私政策</a>
+                </div>
+            </div>
+        </BaseCard>
+    </div>
 </template>
 
-<style scoped>
-:deep(.n-form-item-label) {
-    font-weight: 500;
-}
-</style>
