@@ -3,3 +3,13 @@ export interface Response<T> {
     message: string
     data: T
 }
+
+export interface NavItem {
+    label: string
+    path: string
+}
+
+export interface TopicItem {
+    id: number
+    name: string
+}

@@ -8,6 +8,7 @@ const router = createRouter({
         { path: '/register', component: () => import('@/views/RegisterView.vue') },
         { path: '/profile/me', component: () => import('@/views/ProfileView.vue') },
         { path: '/settings', component: () => import('@/views/SettingsView.vue') },
+        { path: '/editor/create', component: () => import('@/views/CreatePostView.vue') },
     ],
 })
 

@@ -9,7 +9,7 @@ defineProps<{
 
 <template>
     <div :class="['flex h-screen w-screen flex-col', containerClass]">
-        <div :class="['flex items-center justify-start', headerClass]">
+        <div :class="['flex items-center justify-start px-24', headerClass]">
             <slot name="header" />
         </div>
         <div :class="['flex flex-1 overflow-y-auto overflow-x-hidden', mainClass]">

@@ -5,3 +5,4 @@ datareset.sh
 node_modules
 .env
 **/__pycache__/**
+node_modules/*
