@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { SearchOutline, CloseOutline } from '@vicons/ionicons5'
+import { SearchOutline, CloseOutline, AddOutline } from '@vicons/ionicons5'
 
 const props = defineProps<{
     modelValue: string[]
@@ -17,7 +17,7 @@ const popularTopics = ['前端开发', '后端开发', 'Vue.js', 'React', '算�
 const filteredTopics = computed(() => {
     const search = topicSearch.value.toLowerCase()
     if (!search) return popularTopics
-    return popularTopics.filter(t => t.toLowerCase().includes(search))
+    return popularTopics.filter((t) => t.toLowerCase().includes(search))
 })
 
 const toggleTopicDropdown = () => {
@@ -38,7 +38,10 @@ const selectTopic = (topic: string) => {
 }
 
 const removeTopic = (t: string) => {
-    emit('update:modelValue', props.modelValue.filter(i => i !== t))
+    emit(
+        'update:modelValue',
+        props.modelValue.filter((i) => i !== t),
+    )
 }
 
 const handleClickOutside = (e: MouseEvent) => {
@@ -58,55 +61,56 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center gap-2 mb-8 relative topic-selector">
-        <div 
-            v-for="topic in modelValue" 
+    <div class="topic-selector relative flex flex-wrap items-center gap-2">
+        <div
+            v-for="topic in modelValue"
             :key="topic"
-            class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-sm flex items-center gap-1"
-        >
+            class="flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-sm text-blue-600">
             {{ topic }}
-            <button @click="removeTopic(topic)" class="hover:text-blue-800 flex items-center justify-center rounded-full hover:bg-blue-100 w-4 h-4"><CloseOutline class="w-3 h-3" /></button>
+            <button
+                @click="removeTopic(topic)"
+                class="flex h-4 w-4 items-center justify-center rounded-full hover:bg-blue-100 hover:text-blue-800">
+                <CloseOutline class="h-3 w-3" />
+            </button>
         </div>
-        
-        <button 
+
+        <button
             @click="toggleTopicDropdown"
-            class="bg-gray-100 hover:bg-gray-200 text-gray-500 px-3 py-1 rounded-full text-sm flex items-center gap-1 transition-colors"
-        >
-            <span class="text-lg leading-none">+</span> 话题
+            class="flex cursor-pointer items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-200">
+            <AddOutline class="h-4 w-4" />
+            话题
         </button>
 
         <!-- Topic Dropdown -->
-        <div v-if="showTopicDropdown" class="absolute top-full left-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-100 z-20 p-2">
+        <div
+            v-if="showTopicDropdown"
+            class="absolute top-full left-0 z-20 mt-2 w-64 rounded-lg border border-gray-100 bg-white p-2 shadow-xl">
             <div class="relative mb-2">
-                <SearchOutline class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input 
+                <SearchOutline class="absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
                     id="topic-search-input"
                     v-model="topicSearch"
                     type="text"
-                    class="w-full pl-8 pr-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:border-blue-500"
-                    placeholder="搜索话题..."
-                >
+                    class="w-full rounded-md border border-gray-200 py-1.5 pr-2 pl-8 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="搜索话题..." />
             </div>
             <div class="max-h-48 overflow-y-auto">
-                <div class="px-2 py-1 text-xs text-gray-400 font-medium">热门话题</div>
-                <button 
-                    v-for="topic in filteredTopics" 
+                <div class="px-2 py-1 text-xs font-medium text-gray-400">热门话题</div>
+                <button
+                    v-for="topic in filteredTopics"
                     :key="topic"
                     @click="selectTopic(topic)"
-                    class="w-full text-left px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded flex items-center justify-between group"
-                >
+                    class="group flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50">
                     <span>{{ topic }}</span>
-                    <span v-if="modelValue.includes(topic)" class="text-blue-500 text-xs">已选</span>
+                    <span v-if="modelValue.includes(topic)" class="text-xs text-blue-500">已选</span>
                 </button>
-                <button 
+                <button
                     v-if="topicSearch && !filteredTopics.includes(topicSearch) && !modelValue.includes(topicSearch)"
                     @click="selectTopic(topicSearch)"
-                    class="w-full text-left px-2 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded font-medium"
-                >
+                    class="w-full rounded px-2 py-1.5 text-left text-sm font-medium text-blue-600 hover:bg-blue-50">
                     创建 "{{ topicSearch }}"
                 </button>
             </div>
         </div>
     </div>
 </template>
-
