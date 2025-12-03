@@ -57,7 +57,7 @@ func (r *fileRepo) PromoteFile(ctx context.Context, tmpURL, bucket string, hostI
 	}
 	_, err := r.mc.Client.CopyObject(context.Background(), dst, src)
 	if err != nil {
-		return "", fmt.Errorf("复制失败: %v", err)
+		return "", err
 	}
 
 	/// 保留临时文件,由系统自动清理,防止其他步骤出错导致文件被删除

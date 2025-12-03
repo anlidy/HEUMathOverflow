@@ -6,7 +6,6 @@ import (
 
 type ReplyData struct {
 	model.Reply
-	model.ReplyContent
 }
 
 type MultiReplyData struct {

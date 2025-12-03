@@ -2,13 +2,7 @@ package repository
 
 import (
 	"MathOverflow/internal/forum-service/model"
-	"context"
-	"fmt"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"gorm.io/gorm"
 )
 
@@ -19,23 +13,17 @@ type ReplyRepo interface {
 	UpdateColumn(replyID int64, column string, value any) (bool, error)
 	UpdateReply(reply *model.Reply) (bool, error)
 	DeleteReply(replyID int64) error
-	/// mongo
-	MCreateReply(ctx context.Context, reply *model.ReplyContent) (primitive.ObjectID, error)
-	MFindReply(ctx context.Context, filter bson.M) (model.ReplyContent, error)
-	MFindAllReply(ctx context.Context, filter bson.M) ([]model.ReplyContent, error)
-	MUpdateReply(ctx context.Context, query bson.M, update bson.D) (bool, error)
-	MDeleteReply(ctx context.Context, query bson.M) error
-	MDeleteAllReplies(ctx context.Context, query bson.M) error
+	CreateReplyLike(rl *model.ReplyLike) error
+	DeleteReplyLike(userID, replyID int64) error
+	HasReplyLike(userID, replyID int64) (bool, error)
 }
 
 type replyRepo struct {
-	pg      *gorm.DB
-	replies *mongo.Collection
+	pg *gorm.DB
 }
 
-func NewReplyRepository(pg *gorm.DB, mdb *mongo.Database) ReplyRepo {
-	replies := mdb.Collection("replies")
-	return &replyRepo{pg: pg, replies: replies}
+func NewReplyRepository(pg *gorm.DB) ReplyRepo {
+	return &replyRepo{pg: pg}
 }
 
 // pg创建回帖记录
@@ -53,7 +41,8 @@ func (r *replyRepo) FindReplyByID(replyID int64) (model.Reply, error) {
 // pg根据postID,offset,limit查询多个回帖
 func (r *replyRepo) FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error) {
 	var results []model.Reply
-	err := r.pg.Where("post_id = ?", postID).Offset(offset).Limit(limit).Find(&results).Error
+	// 确保被认证的答案置顶
+	err := r.pg.Where("post_id = ?", postID).Offset(offset).Limit(limit).Order("status DESC").Find(&results).Error
 	return results, err
 }
 
@@ -77,84 +66,52 @@ func (r *replyRepo) UpdateReply(reply *model.Reply) (bool, error) {
 
 // pg删除一个回帖
 func (r *replyRepo) DeleteReply(replyID int64) error {
-	return r.pg.Where("id = ?", replyID).Delete(&model.Reply{}).Error
+	result := r.pg.Where("id = ?", replyID).Delete(&model.Reply{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // 删除所有帖子的所有回复
 func (r *replyRepo) DeleteAllReplies(postID int64) error {
-	return r.pg.Where("post_id = ?", postID).Delete(&model.Reply{}).Error
-}
-
-// / mongo
-// 创建一个回帖
-func (r *replyRepo) MCreateReply(ctx context.Context, reply *model.ReplyContent) (primitive.ObjectID, error) {
-	result, err := r.replies.InsertOne(ctx, reply)
-	if err != nil {
-		return primitive.ObjectID{}, fmt.Errorf("mongo: %v", err)
+	result := r.pg.Where("post_id = ?", postID).Delete(&model.Reply{})
+	if result.Error != nil {
+		return result.Error
 	}
-	return result.InsertedID.(primitive.ObjectID), nil
-}
-
-// 查找一个回帖
-func (r *replyRepo) MFindReply(ctx context.Context, filter bson.M) (model.ReplyContent, error) {
-	var reply model.ReplyContent
-	err := r.replies.FindOne(ctx, filter).Decode(reply)
-	if err != nil {
-		return reply, fmt.Errorf("mongo: %v", err)
-	}
-	return reply, nil
-}
-
-// 查找所有回帖
-func (r *replyRepo) MFindAllReply(ctx context.Context, filter bson.M) ([]model.ReplyContent, error) {
-	// 执行查询
-	cursor, err := r.replies.Find(ctx, filter)
-	if err != nil {
-		return nil, fmt.Errorf("mongo: %v", err)
-	}
-	defer cursor.Close(ctx)
-
-	// 遍历结果
-	var results []model.ReplyContent
-	if err = cursor.All(ctx, &results); err != nil {
-		return nil, fmt.Errorf("mongo: %v", err)
-	}
-	return results, nil
-}
-
-// 更新一个回帖
-func (r *replyRepo) MUpdateReply(ctx context.Context, query bson.M, update bson.D) (bool, error) {
-	result, err := r.replies.UpdateOne(ctx, query, update, options.Update().SetUpsert(false))
-	if err != nil {
-		return false, fmt.Errorf("mongo: %v", err)
-	}
-	// 检查匹配情况
-	if result.MatchedCount == 0 {
-		return false, fmt.Errorf("mongo: 未找到要更新的回帖内容")
-	}
-	return result.ModifiedCount > 0, nil
-}
-
-// 删除一个回帖
-func (r *replyRepo) MDeleteReply(ctx context.Context, query bson.M) error {
-	result, err := r.replies.DeleteOne(ctx, query)
-	if err != nil {
-		return fmt.Errorf("mongo: %v", err)
-	}
-	if result.DeletedCount == 0 {
-		return fmt.Errorf("mongo: 未找到要删除的回帖内容")
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
 	}
 	return nil
 }
 
-// 删除所有帖子的所有回复
-func (r *replyRepo) MDeleteAllReplies(ctx context.Context, query bson.M) error {
-	result, err := r.replies.DeleteMany(ctx, query)
-	if err != nil {
-		return fmt.Errorf("mongo: %v", err)
+// / 点赞接口
+// 创建点赞记录
+func (r *replyRepo) CreateReplyLike(rl *model.ReplyLike) error {
+	return r.pg.Model(&model.ReplyLike{}).Create(rl).Error
+}
+
+// 删除点赞记录
+func (r *replyRepo) DeleteReplyLike(userID, replyID int64) error {
+	result := r.pg.Where("user_id = ? AND reply_id = ?", userID, replyID).Delete(&model.ReplyLike{})
+	if result.Error != nil {
+		return result.Error
 	}
-	if result.DeletedCount == 0 {
-		return fmt.Errorf("mongo: 未找到要删除的回帖内容")
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// 查询点赞记录是否存在
+func (r *replyRepo) HasReplyLike(userID, replyID int64) (bool, error) {
+	var count int64
+	err := r.pg.Model(&model.ReplyLike{}).Where("user_id = ? AND reply_id = ?", userID, replyID).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

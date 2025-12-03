@@ -39,20 +39,21 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	// 迁移post表
-	if err := pg.AutoMigrate(&model.Post{}); err != nil {
+	// 迁移表
+	if err := pg.AutoMigrate(&model.Post{}, &model.PostLike{}, &model.PostStar{}); err != nil {
 		panic(err)
 	}
-	// 迁移reply表
-	if err := pg.AutoMigrate(&model.Reply{}); err != nil {
+	if err := pg.AutoMigrate(&model.Reply{}, &model.ReplyLike{}); err != nil {
 		panic(err)
 	}
+	// 添加triggers
+	InitTriggers(pg)
 
-	// 初始化mongoDB数据库
-	mdb, err := client.InitMongo(cfg.MongoDB)
-	if err != nil {
-		panic(err)
-	}
+	// // 初始化mongoDB数据库
+	// mdb, err := client.InitMongo(cfg.MongoDB)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	// 初始化minio数据库
 	mc, err := client.InitMinIO(cfg.Minio)
@@ -62,8 +63,8 @@ func main() {
 
 	// 初始化服务
 	fileRepo := repository.NewFileRepository(mc)
-	postRepo := repository.NewPostRepository(pg, mdb)
-	replyRepo := repository.NewReplyRepository(pg, mdb)
+	postRepo := repository.NewPostRepository(pg)
+	replyRepo := repository.NewReplyRepository(pg)
 
 	forumServ := service.NewForumService(cfg, fileRepo)
 	postServ := service.NewPostService(cfg, postRepo, fileRepo)
