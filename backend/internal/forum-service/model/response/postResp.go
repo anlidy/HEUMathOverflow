@@ -13,5 +13,9 @@ type UserInfo struct {
 
 type PostData struct {
 	model.Post
-	model.PostContent
+}
+
+type MultiPostData struct {
+	UserInfo UserInfo `json:"user_info"`
+	PostData PostData `json:"post_data"`
 }

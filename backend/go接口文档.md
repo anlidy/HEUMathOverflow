@@ -148,12 +148,11 @@ Response:
 }
 ```
 
-
-#### ForumService：论坛相关服务模块
+### ForumService：论坛相关服务模块
 
 #### 根路径: /api/v1/forum
 
-#### 2.1. 上传文件
+#### 2.1.1 上传文件
 
 - 请求方法: POST
 - 相对路径: /upload
@@ -176,7 +175,7 @@ Response:
 }
 ```
 
-#### 2.2.下载文件
+#### 2.1.2下载文件
 
 - 请求方法: GET
 
@@ -189,7 +188,7 @@ Content-Length: 123456
 Content-Disposition: inline; filename="20251027.png" //格式为inline，前端来决定是展示还是下载
 ```
 
-#### 2.3. 创建帖子
+#### 2.2.1 创建帖子
 
 - 请求方法: POST
 - 相对路径: /posts
@@ -216,7 +215,7 @@ Response:
 }
 ```
 
-#### 2.4. 获取单条帖子
+#### 2.2.2 获取单条帖子
 
 - 请求方法: GET
 - 相对路径: /posts/{post_id}
@@ -233,6 +232,10 @@ Response:
             "title": string,
             "tags": string[],
             "status": int,  // 1:未解决 2:已解决 3:已认证
+            "views": int, // 浏览量
+            "likes": int, // 点赞数
+            "stars": int, // 收藏数
+            "replies": int, // 回复数
             "last_reply_at": string | null, // "2025-11-20T12:12:40.33807Z"
             "created_at": string,
             "updated_at": string,
@@ -250,7 +253,234 @@ Response:
 }
 ```
 
-#### 2.5. 创建回复(评论)
+#### 2.2.3 获取多条帖子
+
+- 请求方法: GET
+- 相对路径: /posts
+
+```ts
+// offset: 偏移量
+// limit: 数量
+// order: 排序方式 (0:推荐 1:最热 2:最新),默认值:0
+GET /api/v1/forum/posts?offset=0&limit=10&order=0  
+
+// 此data字段返回一个post列表,每个元素的内容与2.2.2的data字段一致
+Response:
+{
+    "code": 200,
+    "data": [
+      {
+        "post_data": {  // 帖子数据
+            "post_id": string,
+            "title": string,
+            "tags": string[],
+            "status": int,  // 1:未解决 2:已解决 3:已认证
+            "views": int, // 浏览量
+            "likes": int, // 点赞数
+            "stars": int, // 收藏数
+            "replies": int, // 回复数
+            "last_reply_at": string | null, // "2025-11-20T12:12:40.33807Z"
+            "created_at": string,
+            "updated_at": string,
+            "content": string,
+            "image_urls": string[]
+        },
+        "user_info": {  // 发帖人的用户信息
+            "user_id": string,
+            "username": string,
+            "role": int,
+            "avatar_url": string
+        }
+      },
+        ...
+    ],
+    "message": string
+}
+```
+
+#### 2.2.4 更新帖子内容
+
+- 请求方法: PATCH
+- 相对路径: /posts/{post_id}
+
+```ts
+PATCH /api/v1/forum/posts/{post_id}
+Content-Type: application/json
+
+Request:
+{
+    "title": string,  // 必选字段
+    "content": string,  // 必选字段
+    "tags": string[]  // 必选字段,置空会覆盖之前的tags
+    "add_image_urls": string[], // 可选字段: 新增的图片url
+    "delete_image_urls": string[],  // 可选字段: 要删除的图片url
+}
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.2.5 删除一条帖子
+
+- 请求方法: DELETE
+- 相对路径: /posts/{post_id}
+
+```ts
+DELETE /api/v1/forum/posts/{post_id}
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.2.6 帖子点赞
+
+- 请求方法: POST
+- 相对路径: /posts/like/{post_id}
+
+```ts
+POST /api/v1/forum/posts/like/{post_id}
+Content-Type: application/json
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.2.7 取消帖子点赞
+
+- 请求方法: DELETE
+- 相对路径: /posts/like/{post_id}
+
+```ts
+DELETE /api/v1/forum/posts/like/{post_id}
+Content-Type: application/json
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.2.8 查询用户是否点赞了帖子
+
+- 请求方法: GET
+- 相对路径: /posts/like/{post_id}
+
+```ts
+GET /api/v1/forum/posts/like/{post_id}
+
+Response:
+{
+    "code": int,
+    "message": string,
+    "data": {
+        "liked": bool
+    }
+}
+```
+
+#### 2.2.9 收藏帖子
+
+- 请求方法: POST
+- 相对路径: /posts/star/{post_id}
+
+```ts
+POST /api/v1/forum/posts/star/{post_id}
+Content-Type: application/json
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.2.10 取消收藏
+
+- 请求方法: DELETE
+- 相对路径: /posts/star/{post_id}
+
+```ts
+DELETE /api/v1/forum/posts/star/{post_id}
+Content-Type: application/json
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.2.11 查询用户是否收藏了帖子
+
+- 请求方法: GET
+- 相对路径: /posts/star/{post_id}
+
+```ts
+GET /api/v1/forum/posts/star/{post_id}
+
+Response:
+{
+    "code": int,
+    "message": string,
+    "data": {
+        "starred": bool
+    }
+}
+```
+
+#### 2.2.12 查询当前用户收藏的帖子（分页）
+
+- 请求方法: GET
+- 相对路径: /posts/starred
+
+```ts
+// offset: 偏移量（默认 0）
+// limit: 数量（默认 20）
+GET /api/v1/forum/posts/starred?offset=0&limit=20
+
+Response:
+{
+    "code": 200,
+    "data": [
+        {
+            "post_data": {  // 帖子数据
+                "post_id": string,
+                "title": string,
+                "tags": string[],
+                "status": int,
+                "views": int,
+                "likes": int,
+                "stars": int,
+                "replies": int,
+                "last_reply_at": string | null,
+                "created_at": string,
+                "updated_at": string,
+                "content": string,
+                "image_urls": string[]
+            },
+            "user_info": {  // 发帖人的用户信息
+                "user_id": string,
+                "username": string,
+                "role": int,
+                "avatar_url": string
+            }
+        },
+        ...
+    ],
+    "message": string
+}
+```
+
+#### 2.3.1 创建回复(评论)
 
 - 请求方法: POST
 - 相对路径: /replies
@@ -262,7 +492,7 @@ Content-Type: application/json
 Request:
 {
     "post_id":string,
-    "parent_reply_id":string|null,
+    "parent_reply_id":string|null,    // 为空代表回复一条帖子,不为空代表评论一条回复
     "content":string,
     "voice_url":string,
     "image_urls":string[]
@@ -278,7 +508,7 @@ Response:
 }
 ```
 
-#### 2.4. 获取帖子下的回复
+#### 2.3.2 获取帖子下的回复
 
 - 请求方法: GET
 - 相对路径: /posts/{postID}/replies
@@ -316,5 +546,56 @@ Response:
         ...
     ],
     "message": string
+}
+```
+
+#### 2.3.3 给回复点赞
+
+- 请求方法: POST
+- 相对路径: /replies/like/{reply_id}
+
+```ts
+POST /api/v1/forum/replies/like/{reply_id}
+Content-Type: application/json
+
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.3.4 取消回复点赞
+
+- 请求方法: DELETE
+- 相对路径: /replies/like/{reply_id}
+
+```ts
+DELETE /api/v1/forum/replies/like/{reply_id}
+Content-Type: application/json
+
+Response:
+{
+    "code": int,
+    "message": string
+}
+```
+
+#### 2.3.5 查询用户是否点赞了回复
+
+- 请求方法: GET
+- 相对路径: /replies/like/{reply_id}
+
+```ts
+GET /api/v1/forum/replies/like/{reply_id}
+
+Response:
+{
+    "code": int,
+    "message": string,
+    "data": {
+        "liked": bool
+    }
 }
 ```

@@ -67,9 +67,6 @@ func (s *userService) RPCGetUserInfo(ctx context.Context, userID int64) (*userpb
 func (s *userService) RPCBatchGetUserInfo(ctx context.Context, userIDs []int64) (map[int64]*userpb.GetUserResponse, syserror.Error) {
 	users, err := s.userRepo.BatchFindUserByID(userIDs)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, syserror.NotFoundError
-		}
 		log.Printf("[%s] %v", s.servName, err)
 		return nil, syserror.InternalError
 	}

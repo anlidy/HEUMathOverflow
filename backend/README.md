@@ -211,3 +211,7 @@ bin\run.cmd up --build -d
 1. `kind create cluster`创建集群
     kind为容器嵌套结构，使用容器来代替一个具核node，目前已知在linux上`kind create cluster`时kind会将proxy环境变量透传到node中，使得node中一切网络活动失效，影响集群运行，所以应当进入容器取消环境变量或直接关闭代理，使用TUN模式，在Windows+Docker desktop + WSL2平台可直接在cmd中使用集群创建指令，而不会有网络代理问题
 
+2. `docker compose -f ./backend/docker/docker-compose.service.yml build`生成容器
+3. docker tag 添加tag，如`docker tag kind-user-service:latest user-service:latest`
+4. kind load到node中，如`kind load user-service:latest`
+5. `kubectl apply -f ./backend/docker/cluster/k8s.config`将各配置文件部署即可

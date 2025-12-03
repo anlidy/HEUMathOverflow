@@ -27,7 +27,7 @@ func InitPostgres(cfg config.PostgresConfig) (*gorm.DB, error) {
 		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err == nil {
 			fmt.Println("PostgreSQL connected:", cfg.DBName)
-			return db, nil
+			return db.Debug(), nil
 		}
 
 		log.Printf("连接 PostgreSQL 失败 (第 %d/%d 次): %v", i, maxRetries, err)

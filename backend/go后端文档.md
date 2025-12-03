@@ -2,64 +2,93 @@
 
 #### 1. PostgreSQL
 
-##### 1.1. user_db库：用户与会话管理
+##### 1.1. `user_db`：用户与会话管理
 
-##### `users`表: 存储用户的基本信息
+`users` 表（使用雪花 ID，非自增）：
 
 | 字段名        | 类型               | 说明                                                    |
 | ------------- | ------------------ | ------------------------------------------------------- |
-| id            | BIGINT PRIMARY KEY | 用户ID, 使用雪花算法生成                                |
+| id            | BIGINT PK          | 用户ID，雪花算法生成                                    |
 | email         | VARCHAR(100)       | 邮箱（唯一）                                            |
 | username      | VARCHAR(50)        | 用户名（唯一）                                          |
 | password_hash | TEXT               | 加密密码                                                |
-| role          | INT        | 枚举值：1: `student`  2: `assistant`   3: `teacher`  4: `admin` |
-| avatar_url    | TEXT               | 用户头像url, 文件存入MinOS                              |
-| created_at    | TIMESTAMP          | 注册时间                                                |
+| role          | INT                | 枚举：1 student / 2 assistant / 3 teacher / 4 admin     |
+| avatar_url    | TEXT               | 头像 URL（文件存 MinIO）                                |
 | last_login    | TIMESTAMP          | 上次登录时间                                            |
+| created_at    | TIMESTAMP          | 创建时间                                                |
+| updated_at    | TIMESTAMP          | 更新时间                                                |
 
-#####  `sessions`表：存储登录的会话记录
+会话数据已迁移至 Redis（sessionID → {userID, role, remember}），过期策略：
+- remember=true：30 天，活跃即续期；
+- remember=false：1 天，活跃即续期。
 
-**已迁移到Redis数据库**, 采用sessionID -> {userID, roleKey,remember}和roleKey->role键值映射, 并根据以下情况设置过期时间:
+##### 1.2. `forum_db`：帖子与回复
 
--  前端remember为true, 设置30天过期, 每当用户活动则重置为30天;
--  前端remember为false 或 新用户注册, 设置1天过期, 每当用户活动则重置为1天.
+`posts` 表（雪花 ID，非自增，正文直接存 PG）：
 
-##### 1.2. forum_db库: 帖子与回复索引
+| 字段名        | 类型                | 说明                                                    |
+| ------------- | ------------------- | ------------------------------------------------------- |
+| id            | BIGINT PK           | 帖子ID                                                  |
+| author_id     | BIGINT              | 作者ID                                                  |
+| title         | VARCHAR(255)        | 标题                                                    |
+| content       | TEXT                | 正文                                                    |
+| image_urls    | VARCHAR(128)[]      | 图片 URL 数组（MinIO）                                  |
+| tags          | VARCHAR(32)[]       | 标签数组                                                |
+| status        | INT                 | 1 未解答 / 2 已解答 / 3 教师认证                        |
+| views         | INT                 | 浏览数                                                  |
+| likes         | INT                 | 点赞数（冗余计数）                                      |
+| stars         | INT                 | 收藏数（冗余计数）                                      |
+| replies       | INT                 | 回复数（冗余计数）                                      |
+| last_reply_at | TIMESTAMP NULL      | 最后回复时间                                            |
+| created_at    | TIMESTAMP           | 创建时间                                                |
+| updated_at    | TIMESTAMP           | 更新时间                                                |
 
-- MongoDB 保存 “正文” 信息，这里只保存结构化“ 索引” 和元信息, 便于首页展示和排序
+`post_likes` 表：用户对帖子的点赞
 
-##### `posts`表：存储原帖的基本信息
+| 字段名   | 类型      | 说明              |
+| -------- | --------- | ----------------- |
+| post_id  | BIGINT PK | 帖子ID            |
+| user_id  | BIGINT PK | 用户ID            |
+| created_at | TIMESTAMP | 点赞时间        |
 
-| 字段名        | 类型         | 说明                                                    |
-| ------------- | ------------ | ------------------------------------------------------- |
-| id            | BIGSERIAL PK | 帖子ID                                                  |
-| author_id     | BIGINT       | 发帖人ID                                                |
-| title         | VARCHAR(255) | 帖子标题                                                |
-| tags          | TEXT[]       | 标签数组（如 ['微积分', '难题']）                       |
-| status        | INT          | 帖子状态, 枚举值：1:`未解答`  2:`已解答` 3:  `教师认证` |
-| doc_id        | CHAR(24)     | 对应 MongoDB 文档的 ObjectID                            |
-| last_reply_at | TIMESTAMP    | 最后回复时间                                            |
-| created_at    | TIMESTAMP    | 发布时间                                                |
-| updated_at    | TIMESTAMP    | 更新时间                                                |
+`post_stars` 表：用户对帖子的收藏
 
-##### `replies`表：存储回帖的基本信息
+| 字段名   | 类型      | 说明              |
+| -------- | --------- | ----------------- |
+| post_id  | BIGINT PK | 帖子ID            |
+| user_id  | BIGINT PK | 用户ID            |
+| created_at | TIMESTAMP | 收藏时间        |
 
-| 字段名          | 类型         | 说明                                                       |
-| --------------- | ------------ | ---------------------------------------------------------- |
-| id              | BIGSERIAL PK | 回复ID                                                     |
-| post_id         | BIGINT       | 所属原贴的ID                                               |
-| replier_id      | BIGINT       | 回复者ID（学生/AI/教师/管理员）                            |
-| parent_reply_id | BIGINT NULL  | 若为回复他人评论，则指向该评论ID；否则为 NULL              |
-| mongo_doc_id    | CHAR(24)     | 回复内容在 MongoDB 中的文档ID                              |
-| status          | INT          | 评论状态,枚举值: 1: `未被精选` 2: `作者精选` 3: `教师精选` |
-| certified_by    | BIGINT NULL  | 精选该评论的教师ID（可空）                                 |
-| created_at      | TIMESTAMP    | 回复时间                                                   |
-| updated_at      | TIMESTAMP    | 更新时间                                                   |
+`replies` 表（雪花 ID，非自增）：
+
+| 字段名         | 类型            | 说明                                                         |
+| -------------- | --------------- | ------------------------------------------------------------ |
+| id             | BIGINT PK       | 回复ID                                                      |
+| post_id        | BIGINT          | 所属帖子ID（级联删除）                                       |
+| replier_id     | BIGINT          | 回复者ID                                                     |
+| content        | TEXT            | 回复正文                                                     |
+| status         | INT             | 1 未被精选 / 2 作者精选 / 3 教师精选                         |
+| likes          | INT             | 点赞数（冗余计数）                                           |
+| image_urls     | VARCHAR(128)[]  | 图片URL数组（MinIO）                                         |
+| voice_url      | TEXT            | 语音URL（MinIO，可空）                                      |
+| voice_text     | TEXT            | 语音转文字（可空）                                           |
+| ai_answered    | BOOL            | 是否AI回答                                                   |
+| parent_reply_id| BIGINT NULL     | 父回复ID（级联置空）                                         |
+| certified_by   | BIGINT NULL     | 认证教师ID（可空）                                           |
+| created_at     | TIMESTAMP       | 创建时间                                                     |
+| updated_at     | TIMESTAMP       | 更新时间                                                     |
+
+`reply_likes` 表：用户对回复的点赞
+
+| 字段名  | 类型      | 说明      |
+| ------- | --------- | --------- |
+| reply_id| BIGINT PK | 回复ID    |
+| user_id | BIGINT PK | 用户ID    |
+| created_at | TIMESTAMP | 点赞时间 |
 
 ##### 1.3. audit_db库: 内容审核和日志
 
 ##### `audit_logs`表：
-
 | 字段名      | 类型        | 说明                                                         |
 | ----------- | ----------- | ------------------------------------------------------------ |
 | id          | BIGINT PK   | 主键, 雪花算法生成                                           |
@@ -72,7 +101,7 @@
 
 ##### 1.4. teacher_db库: 教师认证与高质量问答存档
 
-##### `certified_answers`表：
+##### `certified_answers`表
 
 | 字段名       | 类型      | 说明               |
 | ------------ | --------- | ------------------ |
@@ -82,53 +111,10 @@
 | teacher_id   | BIGINT    | 认证教师ID         |
 | certified_at | TIMESTAMP | 认证时间           |
 
-#### 2. MongoDB
+#### 2. Redis
 
-**2.1 数据库：`forum_content`**
+- 存储登录 Session；键：sessionID，值：{userID, role, remember, TTL}。
 
-##### 集合：`posts`
+#### 3. MinIO
 
-- `_id`: 自动生成的内部id
-- `post_id`: 原贴的id
-- `content`: 纯文本内容
-- `images`: 原贴附带的图片, 只保存url, 文件存入MinOS
-
-```json
-{
-  "_id": ObjectId("..."),
-  "post_id": 1001,
-  "content": "<p>请问这道极限题如何计算？</p>",
-  "images": [
-    "https://cdn.math-overflow.edu/forum/1001/image1.jpg"
-  ]
-}
-```
-
-##### 集合：`replies`
-
-- `_id`: 自动生成的内部id
-- `reply_id`: 回复id
-- `parent_reply_id`: 若回复他人评论，则指向该评论ID; 否则为null
-- `content`: 纯文本内容
-- `voice`:  用户发的语音, 只存储url
-- `voice_text`: 用户语音转成的文字
-- `images`: 回贴附带的图片, 只保存url, 文件存入MinOS
-- `ai_answered`: 是否为Ai生成的回答
-- `teracher_answered`: 是否为老师的回答
-
-```json
-{
-  "_id": ObjectId("..."),
-  "reply_id": 2005,
-  "parent_reply_id":2001,	// 可空字段
-  "content": "<p>这道题可以使用洛必达法则...</p>",
-  "voice": "https://cdn.math-overflow.edu/forum/2005/voice1.mp3",
-  "voice_text":"这道题可以使用洛必达法则...",
-  "images": [],
-  "ai_answered": false,
-  "teacher_answered": true
-}
-```
-
-#### 
-
+- 存储用户头像、帖子/回复图片、语音等文件，URL 持久化在 PG。

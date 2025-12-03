@@ -37,8 +37,6 @@ func (us *UserServer) GetUserInfo(ctx context.Context, req *userpb.GetUserReques
 func (us *UserServer) BatchGetUserInfo(ctx context.Context, req *userpb.BatchGetUserRequest) (*userpb.BatchGetUserResponse, error) {
 	infoMap, err := us.userService.RPCBatchGetUserInfo(ctx, req.UserIds)
 	switch err {
-	case syserror.NotFoundError:
-		return nil, status.Error(codes.NotFound, "user not found")
 	case syserror.InternalError:
 		return nil, status.Error(codes.Internal, "internal error")
 	}

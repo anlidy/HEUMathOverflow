@@ -123,6 +123,19 @@ services:
           path: ../cmd/audit-service/.air.toml
           target: /src/cmd/audit-service/.air.toml
 
+  pgsadmin:
+    image: docker.io/dpage/pgadmin4:snapshot
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    tty: true
+    ports:
+      - "18080:80"
+      - "18443:443"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    
   postgres:
     image: docker.io/library/postgres:17
     restart: unless-stopped
@@ -184,6 +197,7 @@ networks:
   
 volumes:
   pgs_data:
+  pgadmin_data:
   redis_data:
   minio_data:
   mongo_data:
