@@ -52,6 +52,19 @@ services:
     ports:
       - "8083:8083"
 
+  pgsadmin:
+    image: docker.io/dpage/pgadmin4:snapshot
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    tty: true
+    ports:
+      - "18080:80"
+      - "18443:443"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    
   postgres:
     image: docker.io/library/postgres:17
     restart: unless-stopped
