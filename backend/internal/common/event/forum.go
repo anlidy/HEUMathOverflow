@@ -4,7 +4,6 @@ import "time"
 
 const (
 	// forum post domain events
-	ForumPostSearch  = "forum.post.search"
 	ForumPostCreated = "forum.post.created"
 	ForumPostUpdated = "forum.post.updated"
 	ForumPostDeleted = "forum.post.deleted"
