@@ -1,0 +1,20 @@
+root = "../.."
+tmp_dir = "tmp_es"
+
+[build]
+  cmd = "go build ."
+  bin = "./es-service"
+  full_bin = "./es-service"
+  include_ext = ["go", "yaml", "mod", "sum"]
+  exclude_dir = ["tmp_", "vendor", "bin", "docker", "proto"]
+  include_dir = ["cmd/es-service", "internal/es-service", "internal/common"]
+  delay = 1000
+
+[log]
+  time = true
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"

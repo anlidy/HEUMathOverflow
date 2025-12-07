@@ -3,6 +3,8 @@ package service
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/event"
+	commonevent "MathOverflow/internal/common/event"
 	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
@@ -45,6 +47,7 @@ type postService struct {
 	servName       string
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
+	mq             *client.RabbitMQClient
 }
 
 func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
@@ -69,9 +72,10 @@ func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
 	return s.userClient, nil
 }
 
-func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
+func NewPostService(cfg config.Config, rabbit *client.RabbitMQClient, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
 	return &postService{
 		cfg:      cfg,
+		mq:       rabbit,
 		postRepo: postRepo,
 		fileRepo: fileRepo,
 		servName: "Post-Service",
@@ -118,6 +122,8 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		log.Printf("[%s] %v\n", s.servName, err)
 		return -1, syserror.InternalError
 	}
+
+	s.publishPostEvent(ctx, commonevent.PostCreated, *post)
 	return postID, syserror.NoError
 }
 
@@ -280,6 +286,8 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 		return syserror.InternalError
 	}
 
+	s.publishPostEvent(ctx, commonevent.PostUpdated, post)
+
 	// 后台删除图片
 	go func() {
 		for _, delUrl := range req.DeleteImageURLs {
@@ -356,6 +364,8 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 		return syserror.InternalError
 	}
 
+	s.publishPostEvent(ctx, commonevent.PostDeleted, post)
+
 	// 后台删除帖子包含的文件
 	go func() {
 		urls := post.ImageURLs
@@ -374,6 +384,31 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 	}()
 
 	return syserror.NoError
+}
+
+func (s *postService) publishPostEvent(ctx context.Context, t event.ForumEventType, post model.Post) {
+	if s.mq == nil {
+		return
+	}
+
+	payload := commonevent.ForumPostPayload{
+		ID:        post.ID,
+		AuthorID:  post.AuthorID,
+		Title:     post.Title,
+		Content:   post.Content,
+		Tags:      []string(post.Tags),
+		Status:    int(post.Status),
+		Views:     post.Views,
+		Likes:     post.Likes,
+		Stars:     post.Stars,
+		Replies:   post.Replies,
+		CreatedAt: post.CreatedAt,
+		UpdatedAt: post.UpdatedAt,
+	}
+
+	if err := s.mq.PublishEvent(string(t), payload); err != nil {
+		log.Printf("[%s] publish post event failed: %v\n", s.servName, err)
+	}
 }
 
 // 给帖子点赞

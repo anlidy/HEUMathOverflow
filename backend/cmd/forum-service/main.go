@@ -28,6 +28,13 @@ func main() {
 		panic(err)
 	}
 
+	// 初始化RabbitMQ
+	rabbit, err := client.InitRabbitMQ(cfg.RabbitMQ)
+	if err != nil {
+		panic(err)
+	}
+	defer rabbit.Close()
+
 	// 初始化redis数据库
 	rdb, err := client.InitRedis(cfg.Redis)
 	if err != nil {
@@ -67,7 +74,7 @@ func main() {
 	replyRepo := repository.NewReplyRepository(pg)
 
 	forumServ := service.NewForumService(cfg, fileRepo)
-	postServ := service.NewPostService(cfg, postRepo, fileRepo)
+	postServ := service.NewPostService(cfg, rabbit, postRepo, fileRepo)
 	replyServ := service.NewReplyService(cfg, replyRepo, fileRepo)
 
 	forumContrller := controller.NewForumController(forumServ)

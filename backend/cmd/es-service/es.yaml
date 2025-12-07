@@ -1,0 +1,11 @@
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: rabbitadmin
+  password: rabbitadmin
+  vhost: /
+
+elastic:
+  addresses:
+    - http://elasticsearch:9200
+  index: forum_posts

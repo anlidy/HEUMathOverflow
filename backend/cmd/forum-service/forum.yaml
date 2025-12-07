@@ -27,6 +27,13 @@ redis:
   password: ""
   db: 0
 
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: rabbitadmin
+  password: rabbitadmin
+  vhost: /
+
 grpc:
   expose_port:  50052
   user_service_addr: user-service:50051
