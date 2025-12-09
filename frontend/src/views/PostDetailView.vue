@@ -3,8 +3,8 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { forumApi } from '@/services/forum'
 import type { Post, Reply } from '@/types'
-import PostContentRenderer from '@/features/discussion/PostContentRenderer.vue'
-import PostEditor from '@/features/editor/components/PostEditor.vue'
+import ContentRenderer from '@/features/editor/components/ContentRenderer.vue'
+import Editor from '@/features/editor/components/Editor.vue'
 import { getAvatarUrl } from '@/utils/avatar'
 import {
     ArrowBackOutline,
@@ -165,7 +165,7 @@ onMounted(() => {
                     <div class="my-6 border-t border-gray-100"></div>
 
                     <!-- Body -->
-                    <PostContentRenderer :content="post.content" />
+                    <ContentRenderer :content="post.content" />
 
                     <!-- Footer Actions -->
                     <div class="mt-8 flex items-center gap-6 border-t border-gray-100 pt-6">
@@ -213,7 +213,7 @@ onMounted(() => {
                                     </div>
                                 </div>
 
-                                <PostContentRenderer :content="reply.content" />
+                                <ContentRenderer :content="reply.content" />
                             </div>
                         </div>
                     </div>
@@ -224,7 +224,7 @@ onMounted(() => {
                     <h3 class="mb-4 text-lg font-semibold text-gray-900">发表回复</h3>
                     <div class="overflow-hidden rounded-lg border border-gray-200">
                         <!-- We override PostEditor styles slightly to fit better -->
-                        <PostEditor v-model="replyContent" class="min-h-[200px]" />
+                        <Editor v-model="replyContent" class="min-h-[200px]" />
                     </div>
                     <div class="mt-4 flex justify-end">
                         <button

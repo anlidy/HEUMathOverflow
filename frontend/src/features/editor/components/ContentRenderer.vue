@@ -5,9 +5,9 @@ import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
-import { MathExtension } from '../editor/extensions/MathExtension'
-import MathComponent from '../editor/extensions/MathComponent.vue'
-import CodeBlockComponent from '../editor/components/CodeBlockComponent.vue'
+import { MathExtension } from '@/features/editor/extensions/MathExtension'
+import MathComponent from '@/features/editor/extensions/MathComponent.vue'
+import CodeBlockComponent from '@/features/editor/components/CodeBlockComponent.vue'
 import { watch } from 'vue'
 
 const props = defineProps<{
@@ -39,7 +39,7 @@ const editor = useEditor({
     ],
     editorProps: {
         attributes: {
-            class: 'editor-content tiptap prose max-w-none dark:prose-invert', 
+            class: 'editor-content tiptap prose max-w-none dark:prose-invert',
         },
     },
 })
@@ -55,7 +55,7 @@ watch(
 </script>
 
 <template>
-    <div class="post-content-renderer">
+    <div class="content-renderer">
         <EditorContent :editor="editor as any" />
     </div>
 </template>
@@ -64,4 +64,3 @@ watch(
 /* Ensure styles from editor.css are applied or provide basics */
 /* .post-content-renderer :deep(.tiptap) { ... } */
 </style>
-

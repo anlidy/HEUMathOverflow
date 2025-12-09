@@ -5,8 +5,8 @@ import { useMessage } from 'naive-ui'
 import MainNav from '@/features/header/MainNav.vue'
 import Logo from '@/features/header/Logo.vue'
 import UserMenu from '@/features/user/UserMenu.vue'
-import PostEditor from '@/features/editor/components/PostEditor.vue'
-import TopicSelector from '@/features/editor/components/TopicSelector.vue'
+import PostEditor from '@/features/discussion/PostEditor.vue'
+import TopicSelector from '@/features/discussion/TopicSelector.vue'
 import { usePostsStore } from '@/stores/usePostsStore'
 
 const router = useRouter()

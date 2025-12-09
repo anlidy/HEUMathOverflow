@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useEditor, EditorContent, VueNodeViewRenderer } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -7,12 +7,13 @@ import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
-import { MathExtension } from '../extensions/MathExtension'
-import FloatingMenu from './FloatingMenu.vue'
-import CodeBlockComponent from './CodeBlockComponent.vue'
+import { MathExtension } from '@/features/editor/extensions/MathExtension'
+import FloatingMenu from '@/features/editor/components/FloatingMenu.vue'
+import CodeBlockComponent from '@/features/editor/components/CodeBlockComponent.vue'
 
 const props = defineProps<{
     modelValue: string
+    placeholder?: string
 }>()
 
 const emit = defineEmits<{
@@ -31,7 +32,7 @@ const editor = useEditor({
             codeBlock: false, // Disable default codeBlock to use lowlight
         }),
         Placeholder.configure({
-            placeholder: '输入正文...',
+            placeholder: props.placeholder || '输入正文...',
         }),
         Link.configure({
             openOnClick: false,
@@ -60,7 +61,7 @@ const editor = useEditor({
     ],
     editorProps: {
         attributes: {
-            class: 'tiptap max-w-none focus:outline-none min-h-[500px] px-10 py-4',
+            class: 'tiptap max-w-none focus:outline-none min-h-[200px] px-4 py-2', // Adjusted defaults, can be overridden by parent styles if needed, but 'tiptap' class is key
         },
     },
     onSelectionUpdate: () => {
@@ -127,22 +128,18 @@ defineExpose({
 </script>
 
 <template>
-    <div class="relative mx-auto flex w-full max-w-[900px] flex-1 flex-col border-r border-l border-gray-100">
-        <div class="custom-scrollbar flex-1 overflow-y-auto px-6">
-            <div class="border-b border-gray-200 pt-6 pb-4">
-                <slot name="header"></slot>
-            </div>
-
-            <!-- Editor Container -->
-            <div class="group relative mt-2 w-full" @mousemove="handleMouseMove" @mouseleave="handleMouseLeave">
-                <!-- Floating Plus Button -->
-                <FloatingMenu ref="floatingMenuRef" :editor="editor as any" />
-                <EditorContent class="editor-content" :editor="editor as any" />
-            </div>
-        </div>
+    <!-- Editor Container -->
+    <div class="group editor-container relative w-full" @mousemove="handleMouseMove" @mouseleave="handleMouseLeave">
+        <!-- Floating Plus Button -->
+        <FloatingMenu ref="floatingMenuRef" :editor="editor as any" />
+        <EditorContent class="editor-content" :editor="editor as any" />
     </div>
 </template>
 
 <style scoped>
 /* 样式已迁移至 assets/styles/editor.css */
+.editor-container {
+    min-height: 500px;
+    padding: 1rem 2.5rem; /* px-10 py-4 */
+}
 </style>
