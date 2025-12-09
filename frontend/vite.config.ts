@@ -6,13 +6,27 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), vueDevTools(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    plugins: [vue(), vueDevTools(), tailwindcss()],
+    resolve: {
+        alias: {
+            '@': fileURLToPath(new URL('./src', import.meta.url)),
+        },
     },
-  },
-  server: {
-    open: true,
-  }
+    server: {
+        open: true,
+        proxy: {
+            '/api/v1/user': {
+                target: 'http://localhost:8081',
+                changeOrigin: true,
+            },
+            '/api/v1/forum': {
+                target: 'http://localhost:8082',
+                changeOrigin: true,
+            },
+            '/api/v1/audit': {
+                target: 'http://localhost:8083',
+                changeOrigin: true,
+            },
+        },
+    },
 })

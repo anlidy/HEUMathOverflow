@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
+import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError, AxiosRequestConfig } from 'axios'
 import type { Response } from '@/types/common'
 import { createErrorFromAxios, createBusinessError, ErrorSeverity } from './errorHandler'
 
@@ -49,8 +49,7 @@ request.interceptors.response.use(
         // 业务错误处理：code !== 200 表示业务逻辑错误
         if (code !== 200) {
             // 根据业务错误码确定严重程度
-            const severity =
-                code >= 400 && code < 500 ? ErrorSeverity.NORMAL : ErrorSeverity.CRITICAL
+            const severity = code >= 400 && code < 500 ? ErrorSeverity.NORMAL : ErrorSeverity.CRITICAL
 
             const businessError = createBusinessError(message || '请求失败', code, severity)
             return Promise.reject(businessError)
@@ -70,18 +69,10 @@ request.interceptors.response.use(
 // 扩展 AxiosInstance 类型，告诉 TypeScript 拦截器改变了返回类型
 declare module 'axios' {
     export interface AxiosInstance {
-        post<T = any, D = any>(
-            url: string,
-            data?: D,
-            config?: InternalAxiosRequestConfig,
-        ): Promise<T>
-        get<T = any>(url: string, config?: InternalAxiosRequestConfig): Promise<T>
-        patch<T = any, D = any>(
-            url: string,
-            data?: D,
-            config?: InternalAxiosRequestConfig,
-        ): Promise<T>
-        delete<T = any>(url: string, config?: InternalAxiosRequestConfig): Promise<T>
+        post<T = any, D = any>(url: string, data?: D, config?: AxiosRequestConfig): Promise<T>
+        get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
+        patch<T = any, D = any>(url: string, data?: D, config?: AxiosRequestConfig): Promise<T>
+        delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
     }
 }
 

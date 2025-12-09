@@ -14,7 +14,7 @@ func SetupRouter(rdb *redis.Client,
 	replyController controller.ReplyController) *gin.Engine {
 
 	r := gin.Default()
-	r.Use(middleware.CorsMiddleware([]string{"http://localhost:3000", "https://math-overflow.edu"}))
+	r.Use(middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"}))
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 	forum := v1.Group("/forum")
