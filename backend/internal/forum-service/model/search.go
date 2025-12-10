@@ -3,23 +3,24 @@ package model
 type SearchSortType int
 
 const (
-	SortByFavors    SearchSortType = iota + 1 // 认可高(likes & stars)
+	SortByDefault   SearchSortType = iota + 1 // 默认排序
+	SortByFavors                              // 热度高(likes & stars)
+	SortByCreatedAt                           // 新发布
 	SortByViews                               // 浏览多
 	SortByReplies                             // 评论多
-	SortByCreatedAt                           // 新发布
-	SortByDefault                             // 默认排序
+
 )
 
 func GetSortString(sort SearchSortType) string {
 	switch sort {
-	case 1:
-		return "favors"
 	case 2:
-		return "views"
+		return "favors"
 	case 3:
-		return "replies"
-	case 4:
 		return "created_at"
+	case 4:
+		return "views"
+	case 5:
+		return "replies"
 	default:
 		return "total_score"
 	}

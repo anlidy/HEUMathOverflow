@@ -534,6 +534,7 @@ Response:
                 "post_id": string,
                 "parent_reply_id": string | null,
                 "status": int,  // 1:未精选 2:作者精选 3:教师精选
+                "likes": int,   // 点赞数
                 "certified_by": string | null,
                 "created_at": string,
                 "content": string,
@@ -597,5 +598,55 @@ Response:
     "data": {
         "liked": bool
     }
+}
+```
+
+#### 2.4. 帖子搜索
+
+- 请求方法: POST
+- 相对路径: /search
+
+```ts
+POST /api/v1/forum/search
+
+Request:
+{
+    "query":"test2",
+    "tags":[],
+    "page":1,   // 页码,从1开始
+    "page_size":10, // 每页帖子数
+    "sort":1    // 1:默认排序 2:热度高 3:新发布 4:浏览多 5:评论多
+}
+
+Response:
+{
+    "code": 200,
+    "data": [
+        {
+            "user_info": {
+                "user_id": string,
+                "username": string,
+                "role": int,
+                "avatar_url": string
+            },
+            "post_data": {
+                "post_id": string,
+                "title": string,
+                "content": string,
+                "image_urls": string[],
+                "tags": string[],
+                "status": int,
+                "views": int,
+                "likes": int,
+                "stars": int,
+                "replies": int,
+                "last_reply_at": string | null,
+                "created_at": string,
+                "updated_at": string
+            }
+        }
+    ],
+    "message": string,
+    "total": int // 整个数据库里符合条件的帖子总数
 }
 ```
