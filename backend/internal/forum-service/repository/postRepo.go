@@ -2,7 +2,10 @@ package repository
 
 import (
 	"MathOverflow/internal/forum-service/model"
+	"context"
+	"fmt"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -10,6 +13,7 @@ type PostRepo interface {
 	CreatePost(post *model.Post) error
 	FindPostByID(postID int64) (model.Post, error)
 	FindManyPosts(offset, limit int, order model.OrderBy) ([]model.Post, error)
+	FindPostMapByIDs(postIDs []int64) (map[int64]model.Post, error)
 	UpdateColumn(postID int64, column string, value any) (bool, error)
 	UpdatePost(post *model.Post) (bool, error)
 	DeletePost(postID int64) error
@@ -20,14 +24,18 @@ type PostRepo interface {
 	DeletePostStar(userID, postID int64) error
 	HasPostStar(userID, postID int64) (bool, error)
 	FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, error)
+	// redis
+	IncreasePostStat(ctx context.Context, postID int64, attr string) error
+	DecreasePostStat(ctx context.Context, postID int64, attr string) error
 }
 
 type postRepo struct {
-	pg *gorm.DB
+	pg  *gorm.DB
+	rdb *redis.Client
 }
 
-func NewPostRepository(pg *gorm.DB) PostRepo {
-	return &postRepo{pg: pg}
+func NewPostRepository(pg *gorm.DB, rdb *redis.Client) PostRepo {
+	return &postRepo{pg: pg, rdb: rdb}
 }
 
 // pg创建帖子记录
@@ -35,23 +43,10 @@ func (r *postRepo) CreatePost(post *model.Post) error {
 	return r.pg.Model(&model.Post{}).Create(post).Error
 }
 
-// 根据postID查询帖子(view++)
+// 根据postID查询帖子
 func (r *postRepo) FindPostByID(postID int64) (model.Post, error) {
 	var result model.Post
-	// 事务保证一致性
-	err := r.pg.Transaction(func(tx *gorm.DB) error {
-		// 1. 查询完整帖子
-		if err := tx.First(&result, postID).Error; err != nil {
-			return err
-		}
-
-		// 2. views + 1 原子自增
-		err := tx.Model(&model.Post{}).Where("id = ?", postID).UpdateColumn("views", gorm.Expr("views + 1")).Error
-		if err != nil {
-			return err
-		}
-		return nil
-	})
+	err := r.pg.Model(&model.Post{}).Where("id = ?", postID).First(&result).Error
 	return result, err
 }
 
@@ -70,6 +65,28 @@ func (r *postRepo) FindManyPosts(offset, limit int, order model.OrderBy) ([]mode
 	}
 	err := r.pg.Offset(offset).Limit(limit).Order(orderStr).Find(&results).Error
 	return results, err
+}
+
+// 根据postID查询多条帖子
+func (r *postRepo) FindPostMapByIDs(postIDs []int64) (map[int64]model.Post, error) {
+	if len(postIDs) == 0 {
+		return nil, nil
+	}
+
+	// 查询
+	var list []model.Post
+	err := r.pg.Where("id IN (?)", postIDs).Find(&list).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建 map，方便按原顺序重排
+	mp := make(map[int64]model.Post, len(list))
+	for _, post := range list {
+		mp[post.ID] = post
+	}
+
+	return mp, nil
 }
 
 // 更新一列
@@ -169,4 +186,30 @@ func (r *postRepo) FindUserStarredPosts(userID int64, offset, limit int) ([]mode
 		Offset(offset).Limit(limit).
 		Find(&results).Error
 	return results, err
+}
+
+// redis增加{attr}次数
+func (r *postRepo) IncreasePostStat(ctx context.Context, postID int64, attr string) error {
+	key := fmt.Sprintf("post:%d:stat", postID)
+
+	// 原子 +1，如果 key 或字段不存在，Redis 会自动创建
+	_, err := r.rdb.HIncrBy(ctx, key, attr, 1).Result()
+	if err != nil {
+		return fmt.Errorf("increase %s failed: %w", attr, err)
+	}
+
+	return nil
+}
+
+// redis减少{attr}次数
+func (r *postRepo) DecreasePostStat(ctx context.Context, postID int64, attr string) error {
+	key := fmt.Sprintf("post:%d:stat", postID)
+
+	// 原子 -1，如果 key 或字段不存在，Redis 会自动创建
+	_, err := r.rdb.HIncrBy(ctx, key, attr, -1).Result()
+	if err != nil {
+		return fmt.Errorf("decrease %s failed: %w", attr, err)
+	}
+
+	return nil
 }

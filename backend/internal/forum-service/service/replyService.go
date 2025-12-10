@@ -127,7 +127,14 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 		log.Printf("[%s] %v\n", s.servName, err)
 		return -1, syserror.InternalError
 	}
-	// 更新原帖的状态
+	// 后台同步
+	go func() {
+		// redis的replies+1
+		err = s.replyRepo.IncreasePostReplies(context.Background(), req.PostID)
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 	return replyID, syserror.NoError
 }
 
@@ -381,6 +388,14 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 			}
 		}
 	}()
+	// 后台同步
+	go func() {
+		// redis的replies-1
+		err = s.replyRepo.DecreasePostReplies(context.Background(), reply.PostID)
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 	return syserror.NoError
 }
 
@@ -394,6 +409,9 @@ func (s *replyService) LikeOneReply(ctx context.Context, replyID, userID int64) 
 	if err != nil {
 		if utils.IsPgDuplicateKey(err) {
 			return syserror.DuplicateError
+		}
+		if utils.IsPgViolateForeignKey(err) {
+			return syserror.NotFoundError
 		}
 		log.Printf("[%s] %v\n", s.servName, err)
 		return syserror.InternalError

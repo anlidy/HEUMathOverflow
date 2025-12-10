@@ -36,6 +36,21 @@ type RedisConfig struct {
 	DB       int
 }
 
+type RabbitMQConfig struct {
+	Host            string
+	Port            int
+	User            string
+	Password        string
+	PostWorkerCount int64 `mapstructure:"post_worker_count"`
+}
+
+type ElasticsearchConfig struct {
+	Addresses []string `mapstructure:"addresses"`
+	Username  string
+	Password  string
+	Index     string
+}
+
 type GRPCConfig struct {
 	ExposePort      int    `mapstructure:"expose_port"`
 	UserServiceAddr string `mapstructure:"user_service_addr"`
@@ -50,6 +65,8 @@ type Config struct {
 	MongoDB  MongoConfig
 	Minio    MinioConfig
 	Redis    RedisConfig
+	RabbitMQ RabbitMQConfig
+	Elastic  ElasticsearchConfig
 	GRPC     GRPCConfig
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/event"
 	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
@@ -15,6 +16,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lib/pq"
 	"github.com/minio/minio-go/v7"
@@ -45,6 +47,7 @@ type postService struct {
 	servName       string
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
+	mq             *client.RabbitMQClient
 }
 
 func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
@@ -69,9 +72,10 @@ func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
 	return s.userClient, nil
 }
 
-func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
+func NewPostService(cfg config.Config, rabbit *client.RabbitMQClient, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
 	return &postService{
 		cfg:      cfg,
+		mq:       rabbit,
 		postRepo: postRepo,
 		fileRepo: fileRepo,
 		servName: "Post-Service",
@@ -80,6 +84,36 @@ func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo re
 
 // 创建新帖子
 func (s *postService) CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error) {
+	// 获取grpc client
+	userClient, err := s.getUserClient()
+	if err != nil {
+		log.Printf("[%s] %v\n", s.servName, err)
+		return 0, syserror.NetworkError
+	}
+	// 调用 UserService
+	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
+	if err != nil {
+		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			log.Println("非 gRPC 错误:", err)
+			return 0, syserror.NetworkError
+		}
+		switch st.Code() {
+		case codes.Internal:
+			return 0, syserror.InternalError
+		case codes.NotFound:
+			return 0, syserror.NotFoundError
+		case codes.Canceled:
+			return 0, syserror.NetworkError
+		default:
+			log.Printf("GRPC请求失败! code:%v err:%v\n", st.Code(), err)
+			return 0, syserror.InternalError
+		}
+	}
+	// 获取作者名称
+	authorName := resp.Username
+
 	// 生成帖子id
 	var postID = utils.GenerateSnowflakeID()
 
@@ -101,7 +135,7 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 	}
 
 	// 创建帖子数据
-	var post = &model.Post{
+	var post = model.Post{
 		ID:        postID,
 		AuthorID:  userID,
 		Title:     req.Title,
@@ -109,8 +143,9 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		ImageURLs: images,
 		Tags:      pq.StringArray(req.Tags),
 		Status:    model.Unanswered,
+		CreatedAt: time.Now(),
 	}
-	err := s.postRepo.CreatePost(post)
+	err = s.postRepo.CreatePost(&post)
 	if err != nil {
 		if utils.IsPgDuplicateKey(err) {
 			return -1, syserror.DuplicateError
@@ -118,6 +153,19 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		log.Printf("[%s] %v\n", s.servName, err)
 		return -1, syserror.InternalError
 	}
+
+	// 发布帖子创建消息
+	var payload = event.ForumPostPayload{
+		PostID:     postID,
+		AuthorID:   post.AuthorID,
+		AuthorName: authorName, // 创建时需要存一次用户名
+		Title:      post.Title,
+		Content:    post.Content,
+		Tags:       post.Tags,
+		Status:     int(post.Status),
+		CreatedAt:  post.CreatedAt,
+	}
+	event.PublishPostEvent(s.mq, event.ForumPostCreated, payload)
 	return postID, syserror.NoError
 }
 
@@ -172,6 +220,15 @@ func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.U
 	postData := &response.PostData{
 		Post: post,
 	}
+
+	// 后台完成同步
+	go func() {
+		// redis的views+1
+		err = s.postRepo.IncreasePostStat(context.Background(), postID, "views")
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 
 	return userInfo, postData, syserror.NoError
 }
@@ -280,6 +337,21 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 		return syserror.InternalError
 	}
 
+	// 发布事件
+	var payload = event.ForumPostPayload{
+		PostID:    postID,
+		Title:     post.Title,
+		Content:   post.Content,
+		Tags:      post.Tags,
+		Status:    int(post.Status),
+		CreatedAt: post.CreatedAt,
+		Views:     post.Views,
+		Likes:     post.Likes,
+		Stars:     post.Stars,
+		Replies:   post.Replies,
+	}
+	event.PublishPostEvent(s.mq, event.ForumPostUpdated, payload)
+
 	// 后台删除图片
 	go func() {
 		for _, delUrl := range req.DeleteImageURLs {
@@ -356,6 +428,10 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 		return syserror.InternalError
 	}
 
+	// 发布事件
+	var payload = event.ForumPostPayload{PostID: postID}
+	event.PublishPostEvent(s.mq, event.ForumPostDeleted, payload)
+
 	// 后台删除帖子包含的文件
 	go func() {
 		urls := post.ImageURLs
@@ -387,9 +463,20 @@ func (s *postService) LikeOnePost(ctx context.Context, postID, userID int64) sys
 		if utils.IsPgDuplicateKey(err) {
 			return syserror.DuplicateError
 		}
+		if utils.IsPgViolateForeignKey(err) {
+			return syserror.NotFoundError
+		}
 		log.Printf("[%s] %v\n", s.servName, err)
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func() {
+		// redis的likes+1
+		err = s.postRepo.IncreasePostStat(context.Background(), postID, "likes")
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 	return syserror.NoError
 }
 
@@ -403,6 +490,14 @@ func (s *postService) CancelLikeOnePost(ctx context.Context, postID, userID int6
 		log.Printf("[%s] %v\n", s.servName, err)
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func() {
+		// redis的likes-1
+		err = s.postRepo.DecreasePostStat(context.Background(), postID, "likes")
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 	return syserror.NoError
 }
 
@@ -420,17 +515,29 @@ func (s *postService) HasLikedPost(ctx context.Context, postID, userID int64) (b
 // 收藏帖子
 func (s *postService) StarOnePost(ctx context.Context, postID, userID int64) syserror.Error {
 	var postStar = model.PostStar{
+		ID:     utils.GenerateSnowflakeID(),
 		UserID: userID,
-		PostID: postID,
+		PostID: &postID,
 	}
 	err := s.postRepo.CreatePostStar(&postStar)
 	if err != nil {
 		if utils.IsPgDuplicateKey(err) {
 			return syserror.DuplicateError
 		}
+		if utils.IsPgViolateForeignKey(err) {
+			return syserror.NotFoundError
+		}
 		log.Printf("[%s] %v\n", s.servName, err)
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func() {
+		// redis的stars+1
+		err = s.postRepo.IncreasePostStat(context.Background(), postID, "stars")
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 	return syserror.NoError
 }
 
@@ -444,6 +551,14 @@ func (s *postService) CancelStarOnePost(ctx context.Context, postID, userID int6
 		log.Printf("[%s] %v\n", s.servName, err)
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func() {
+		// redis的stars-1
+		err = s.postRepo.DecreasePostStat(context.Background(), postID, "stars")
+		if err != nil {
+			log.Printf("[%s] %v\n", s.servName, err)
+		}
+	}()
 	return syserror.NoError
 }
 
