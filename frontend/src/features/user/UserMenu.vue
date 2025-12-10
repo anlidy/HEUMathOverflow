@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { PersonOutline, SettingsOutline, LogOutOutline, LogInOutline, PersonAddOutline } from '@vicons/ionicons5'
 import Avatar from '@/components/display/Avatar.vue'
 import { getAvatarUrl } from '@/utils/avatar'
+import { getRoleText } from '@/types'
 
 const userStore = useUserStore()
 const userInfo = computed(() => userStore.userInfo)
@@ -51,7 +52,10 @@ onUnmounted(() => {
                         <Avatar :avatarUrl="avatarSrc" size="28px" />
                         <div class="flex flex-col p-2">
                             <span class="text-sm font-medium">{{ userInfo?.username || 'user' }}</span>
-                            <span class="text-xs text-gray-500">{{ userInfo?.email || 'email' }}</span>
+                            <!-- 显示用户角色 -->
+                            <span class="text-xs text-gray-500">
+                                {{ userInfo?.role ? getRoleText(userInfo.role) : '' }}
+                            </span>
                         </div>
                     </div>
                     <div class="flex flex-col items-start justify-start">

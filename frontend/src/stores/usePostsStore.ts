@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Post, Reply, CreatePostRequest, CreateReplyRequest, GetPostsParams, GetRepliesParams } from '@/types'
-import { api } from '@/services'
+import type { Post, Reply, CreatePostRequest, CreateReplyRequest, GetPostsParams, GetRepliesParams, Pagination } from '@/types'
+import { forumApi } from '@/services/forum'
 import { useUserStore } from '@/stores/useUserStore'
 
 export const usePostsStore = defineStore('posts', () => {
@@ -15,16 +15,15 @@ export const usePostsStore = defineStore('posts', () => {
     const repliesMap = ref<Map<string, Reply[]>>(new Map())
 
     // 分页信息
-    const pagination = ref<{ page: number; limit: number; total: number; totalPages: number } | null>(null)
+    const pagination = ref<Pagination | null>(null)
 
     // 用户交互状态映射（帖子ID -> 交互状态）
-    const postInteractions = ref<Map<string, { isLiked: boolean; isBookmarked: boolean }>>(new Map())
+    const postInteractions = ref<Map<string, { is_liked: boolean; is_starred: boolean }>>(new Map())
 
     // 回复交互状态映射（回复ID -> 是否点赞）
     const replyInteractions = ref<Map<string, boolean>>(new Map())
 
     // 检查用户是否登录的辅助函数
-    // 返回错误信息，如果已登录则返回null
     const checkAuth = (): string | null => {
         const userStore = useUserStore()
         if (!userStore.userInfo) {
@@ -36,7 +35,7 @@ export const usePostsStore = defineStore('posts', () => {
     // 计算属性：获取指定帖子的交互状态
     const getPostInteraction = computed(() => {
         return (postId: string) => {
-            return postInteractions.value.get(postId) || { isLiked: false, isBookmarked: false }
+            return postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
         }
     })
 
@@ -49,16 +48,16 @@ export const usePostsStore = defineStore('posts', () => {
 
     // 获取帖子列表
     const getPosts = async (params?: GetPostsParams) => {
-        const response = await api.forum.getPosts(params)
-        posts.value = response.data.posts
-        pagination.value = response.data.pagination
+        const response = await forumApi.getPosts(params)
+        posts.value = response.posts
+        pagination.value = response.pagination
 
         // 同步交互状态
         posts.value.forEach((post) => {
-            if (post.isLiked !== undefined || post.isBookmarked !== undefined) {
-                postInteractions.value.set(post.id, {
-                    isLiked: post.isLiked || false,
-                    isBookmarked: post.isBookmarked || false,
+            if (post.is_liked !== undefined || post.is_starred !== undefined) {
+                postInteractions.value.set(post.post_id, {
+                    is_liked: post.is_liked || false,
+                    is_starred: post.is_starred || false,
                 })
             }
         })
@@ -68,20 +67,20 @@ export const usePostsStore = defineStore('posts', () => {
 
     // 获取帖子详情
     const getPostDetail = async (postId: string) => {
-        const response = await api.forum.getPostDetail(postId)
-        currentPost.value = response.data.post
+        const response = await forumApi.getPostDetail(postId)
+        currentPost.value = response.post
 
         // 同步交互状态
-        const post = response.data.post
-        if (post.isLiked !== undefined || post.isBookmarked !== undefined) {
-            postInteractions.value.set(post.id, {
-                isLiked: post.isLiked || false,
-                isBookmarked: post.isBookmarked || false,
+        const post = response.post
+        if (post.is_liked !== undefined || post.is_starred !== undefined) {
+            postInteractions.value.set(post.post_id, {
+                is_liked: post.is_liked || false,
+                is_starred: post.is_starred || false,
             })
         }
 
         // 更新帖子列表中的对应帖子
-        const index = posts.value.findIndex((p) => p.id === postId)
+        const index = posts.value.findIndex((p) => p.post_id === postId)
         if (index !== -1) {
             posts.value[index] = post
         }
@@ -96,16 +95,12 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.createPost(data)
-        const newPost = response.data.post
-
-        // 添加到列表开头
-        posts.value.unshift(newPost)
+        const response = await forumApi.createPost(data)
 
         // 初始化交互状态
-        postInteractions.value.set(newPost.id, {
-            isLiked: false,
-            isBookmarked: false,
+        postInteractions.value.set(response.post_id, {
+            is_liked: false,
+            is_starred: false,
         })
 
         return response
@@ -118,21 +113,10 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.updatePost(postId, data)
-        const updatedPost = response.data.post
+        await forumApi.updatePost(postId, data as any)
 
-        // 更新当前帖子
-        if (currentPost.value?.id === postId) {
-            currentPost.value = updatedPost
-        }
-
-        // 更新列表中的帖子
-        const index = posts.value.findIndex((p) => p.id === postId)
-        if (index !== -1 && posts.value[index]) {
-            posts.value[index] = updatedPost
-        }
-
-        return response
+        // 重新获取帖子详情以更新本地状态
+        await getPostDetail(postId)
     }
 
     // 删除帖子
@@ -142,13 +126,13 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        await api.forum.deletePost(postId)
+        await forumApi.deletePost(postId)
 
         // 从列表中移除
-        posts.value = posts.value.filter((p) => p.id !== postId)
+        posts.value = posts.value.filter((p) => p.post_id !== postId)
 
         // 清除当前帖子
-        if (currentPost.value?.id === postId) {
+        if (currentPost.value?.post_id === postId) {
             currentPost.value = null
         }
 
@@ -159,13 +143,13 @@ export const usePostsStore = defineStore('posts', () => {
 
     // 获取回复列表
     const getReplies = async (postId: string, params?: GetRepliesParams) => {
-        const response = await api.forum.getReplies(postId, params)
-        repliesMap.value.set(postId, response.data.replies)
+        const response = await forumApi.getReplies(postId, params)
+        repliesMap.value.set(postId, response.replies)
 
         // 同步回复的点赞状态
-        response.data.replies.forEach((reply) => {
-            if (reply.isLiked !== undefined) {
-                replyInteractions.value.set(reply.id, reply.isLiked)
+        response.replies.forEach((reply) => {
+            if (reply.is_liked !== undefined) {
+                replyInteractions.value.set(reply.reply_id, reply.is_liked)
             }
         })
 
@@ -179,46 +163,28 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.createReply(postId, data)
-        const newReply = response.data.reply
-
-        // 添加到回复列表
-        const replies = repliesMap.value.get(postId) || []
-        replies.push(newReply)
-        repliesMap.value.set(postId, replies)
+        const response = await forumApi.createReply(postId, data)
 
         // 初始化点赞状态
-        replyInteractions.value.set(newReply.id, false)
+        replyInteractions.value.set(response.reply_id, false)
 
-        // 更新帖子回复数
-        if (currentPost.value?.id === postId) {
-            currentPost.value.replyCount += 1
+        // 更新帖子回复数（使用新对象触发响应式更新）
+        if (currentPost.value?.post_id === postId) {
+            currentPost.value = {
+                ...currentPost.value,
+                replies: currentPost.value.replies + 1,
+            }
         }
-        const postIndex = posts.value.findIndex((p) => p.id === postId)
+        const postIndex = posts.value.findIndex((p) => p.post_id === postId)
         if (postIndex !== -1 && posts.value[postIndex]) {
-            posts.value[postIndex].replyCount += 1
+            posts.value[postIndex] = {
+                ...posts.value[postIndex],
+                replies: posts.value[postIndex].replies + 1,
+            }
         }
 
-        return response
-    }
-
-    // 更新回复
-    const updateReply = async (postId: string, replyId: string, data: Partial<CreateReplyRequest>) => {
-        const authError = checkAuth()
-        if (authError) {
-            return Promise.reject(new Error(authError))
-        }
-
-        const response = await api.forum.updateReply(postId, replyId, data)
-        const updatedReply = response.data.reply
-
-        // 更新回复列表
-        const replies = repliesMap.value.get(postId) || []
-        const index = replies.findIndex((r) => r.id === replyId)
-        if (index !== -1) {
-            replies[index] = updatedReply
-            repliesMap.value.set(postId, replies)
-        }
+        // 重新获取回复列表
+        await getReplies(postId)
 
         return response
     }
@@ -230,25 +196,31 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        await api.forum.deleteReply(postId, replyId)
+        await forumApi.deleteReply(replyId)
 
         // 从回复列表中移除
         const replies = repliesMap.value.get(postId) || []
         repliesMap.value.set(
             postId,
-            replies.filter((r) => r.id !== replyId),
+            replies.filter((r) => r.reply_id !== replyId),
         )
 
         // 清除交互状态
         replyInteractions.value.delete(replyId)
 
-        // 更新帖子回复数
-        if (currentPost.value?.id === postId) {
-            currentPost.value.replyCount = Math.max(0, currentPost.value.replyCount - 1)
+        // 更新帖子回复数（使用新对象触发响应式更新）
+        if (currentPost.value?.post_id === postId) {
+            currentPost.value = {
+                ...currentPost.value,
+                replies: Math.max(0, currentPost.value.replies - 1),
+            }
         }
-        const postIndex = posts.value.findIndex((p) => p.id === postId)
+        const postIndex = posts.value.findIndex((p) => p.post_id === postId)
         if (postIndex !== -1 && posts.value[postIndex]) {
-            posts.value[postIndex].replyCount = Math.max(0, posts.value[postIndex].replyCount - 1)
+            posts.value[postIndex] = {
+                ...posts.value[postIndex],
+                replies: Math.max(0, posts.value[postIndex].replies - 1),
+            }
         }
     }
 
@@ -259,23 +231,23 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.likePost(postId)
-        const { isLiked, likeCount } = response.data
+        const response = await forumApi.togglePostLike(postId)
+        const { is_liked, likes } = response
 
         // 更新交互状态
-        const interaction = postInteractions.value.get(postId) || { isLiked: false, isBookmarked: false }
-        interaction.isLiked = isLiked
+        const interaction = postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
+        interaction.is_liked = is_liked
         postInteractions.value.set(postId, interaction)
 
         // 更新帖子点赞数
-        if (currentPost.value?.id === postId) {
-            currentPost.value.isLiked = isLiked
-            currentPost.value.likeCount = likeCount
+        if (currentPost.value?.post_id === postId) {
+            currentPost.value.is_liked = is_liked
+            currentPost.value.likes = likes
         }
-        const postIndex = posts.value.findIndex((p) => p.id === postId)
+        const postIndex = posts.value.findIndex((p) => p.post_id === postId)
         if (postIndex !== -1 && posts.value[postIndex]) {
-            posts.value[postIndex].isLiked = isLiked
-            posts.value[postIndex].likeCount = likeCount
+            posts.value[postIndex].is_liked = is_liked
+            posts.value[postIndex].likes = likes
         }
 
         return response
@@ -288,18 +260,17 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.likeReply(postId, replyId)
-        const { isLiked, likeCount } = response.data
+        const response = await forumApi.toggleReplyLike(replyId)
+        const { is_liked } = response
 
         // 更新交互状态
-        replyInteractions.value.set(replyId, isLiked)
+        replyInteractions.value.set(replyId, is_liked)
 
-        // 更新回复点赞数
+        // 更新回复点赞状态
         const replies = repliesMap.value.get(postId) || []
-        const replyIndex = replies.findIndex((r) => r.id === replyId)
+        const replyIndex = replies.findIndex((r) => r.reply_id === replyId)
         if (replyIndex !== -1 && replies[replyIndex]) {
-            replies[replyIndex].isLiked = isLiked
-            replies[replyIndex].likeCount = likeCount
+            replies[replyIndex].is_liked = is_liked
             repliesMap.value.set(postId, replies)
         }
 
@@ -307,41 +278,40 @@ export const usePostsStore = defineStore('posts', () => {
     }
 
     // 收藏/取消收藏帖子
-    const toggleBookmarkPost = async (postId: string) => {
+    const toggleStarPost = async (postId: string) => {
         const authError = checkAuth()
         if (authError) {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.bookmarkPost(postId)
-        const { isBookmarked } = response.data
+        const response = await forumApi.togglePostStar(postId)
+        const { is_starred } = response
 
         // 更新交互状态
-        const interaction = postInteractions.value.get(postId) || { isLiked: false, isBookmarked: false }
-        interaction.isBookmarked = isBookmarked
+        const interaction = postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
+        interaction.is_starred = is_starred
         postInteractions.value.set(postId, interaction)
 
         // 更新帖子收藏状态
-        if (currentPost.value?.id === postId) {
-            currentPost.value.isBookmarked = isBookmarked
+        if (currentPost.value?.post_id === postId) {
+            currentPost.value.is_starred = is_starred
         }
-        const postIndex = posts.value.findIndex((p) => p.id === postId)
+        const postIndex = posts.value.findIndex((p) => p.post_id === postId)
         if (postIndex !== -1 && posts.value[postIndex]) {
-            posts.value[postIndex].isBookmarked = isBookmarked
+            posts.value[postIndex].is_starred = is_starred
         }
 
         return response
     }
 
     // 获取收藏列表
-    const getBookmarks = async (params?: GetPostsParams) => {
+    const getBookmarks = async (params?: { offset?: number; limit?: number }) => {
         const authError = checkAuth()
         if (authError) {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.getBookmarks(params)
-        // 收藏列表可以单独存储，或者合并到 posts 中
+        const response = await forumApi.getBookmarks(params)
         return response
     }
 
@@ -352,27 +322,19 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await api.forum.certifyReply(postId, replyId)
-        const updatedReply = response.data.reply
+        await forumApi.certifyReply(postId, replyId)
 
-        // 更新回复列表
-        const replies = repliesMap.value.get(postId) || []
-        const index = replies.findIndex((r) => r.id === replyId)
-        if (index !== -1) {
-            replies[index] = updatedReply
-            repliesMap.value.set(postId, replies)
-        }
+        // 重新获取回复列表以更新状态
+        await getReplies(postId)
 
-        // 更新帖子状态
-        if (currentPost.value?.id === postId) {
-            currentPost.value.hasCertifiedAnswer = true
+        // 更新帖子状态（status = 3 表示已认证）
+        if (currentPost.value?.post_id === postId) {
+            currentPost.value.status = 3
         }
-        const postIndex = posts.value.findIndex((p) => p.id === postId)
+        const postIndex = posts.value.findIndex((p) => p.post_id === postId)
         if (postIndex !== -1 && posts.value[postIndex]) {
-            posts.value[postIndex].hasCertifiedAnswer = true
+            posts.value[postIndex].status = 3
         }
-
-        return response
     }
 
     // 获取指定帖子的回复列表
@@ -416,11 +378,10 @@ export const usePostsStore = defineStore('posts', () => {
         deletePost,
         getReplies,
         createReply,
-        updateReply,
         deleteReply,
         toggleLikePost,
         toggleLikeReply,
-        toggleBookmarkPost,
+        toggleStarPost, // 重命名：toggleBookmarkPost -> toggleStarPost
         getBookmarks,
         certifyReply,
         getPostReplies,

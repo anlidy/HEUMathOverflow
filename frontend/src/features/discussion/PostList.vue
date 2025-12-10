@@ -19,7 +19,8 @@ const posts = computed(() => postsStore.posts)
             </li>
         </template>
         <template v-else>
-            <li v-for="post in posts" :key="post.id">
+            <!-- 使用新字段名 post_id -->
+            <li v-for="post in posts" :key="post.post_id">
                 <PostCard :post="post" />
             </li>
             <li v-if="posts.length === 0" class="text-center text-gray-500 py-10">

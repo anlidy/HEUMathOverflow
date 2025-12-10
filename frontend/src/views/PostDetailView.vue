@@ -4,10 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { usePostsStore } from '@/stores/usePostsStore'
 import ContentRenderer from '@/features/editor/components/ContentRenderer.vue'
 import { getAvatarUrl } from '@/utils/avatar'
-import { ArrowBackOutline, ChatboxOutline, CheckmarkCircle, PersonOutline, ThumbsUpOutline } from '@vicons/ionicons5'
+import { ArrowBackOutline, ChatboxOutline, CheckmarkCircle, ThumbsUpOutline } from '@vicons/ionicons5'
 import { useMessage } from 'naive-ui'
+import { isReplyCertified, getRoleText } from '@/types'
 
-// Fallback date formatter if timeago not available
+// 日期格式化
 const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('zh-CN', {
         year: 'numeric',
@@ -112,21 +113,23 @@ onMounted(() => {
                         </div>
 
                         <div class="flex items-center gap-4 text-sm text-gray-500">
-                            <!-- Author -->
+                            <!-- Author - 使用新字段名 avatar_url -->
                             <div class="flex items-center gap-2">
                                 <img
-                                    :src="getAvatarUrl(post.author.avatar)"
+                                    :src="getAvatarUrl(post.author.avatar_url)"
                                     class="h-6 w-6 rounded-full object-cover"
                                     alt="avatar" />
                                 <span class="font-medium text-gray-700">{{ post.author.username }}</span>
                                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                                    {{ post.author.role }}
+                                    {{ getRoleText(post.author.role) }}
                                 </span>
                             </div>
                             <span>•</span>
-                            <span>{{ formatDate(post.createdAt) }}</span>
+                            <!-- 使用新字段名 created_at -->
+                            <span>{{ formatDate(post.created_at) }}</span>
                             <span>•</span>
-                            <span>{{ post.viewCount }} 浏览</span>
+                            <!-- 使用新字段名 views -->
+                            <span>{{ post.views }} 浏览</span>
                         </div>
 
                         <!-- Tags -->
@@ -148,12 +151,14 @@ onMounted(() => {
                         <button
                             class="flex cursor-pointer items-center gap-2 text-gray-500 transition-colors hover:text-red-500">
                             <ThumbsUpOutline class="h-5 w-5" />
-                            <span>{{ post.likeCount }}</span>
+                            <!-- 使用新字段名 likes -->
+                            <span>{{ post.likes }}</span>
                         </button>
                         <button
                             class="flex cursor-pointer items-center gap-2 text-gray-500 transition-colors hover:text-blue-500">
                             <ChatboxOutline class="h-5 w-5" />
-                            <span>{{ post.replyCount }}</span>
+                            <!-- 使用新字段名 replies -->
+                            <span>{{ post.replies }}</span>
                         </button>
                     </div>
                 </div>
@@ -185,21 +190,24 @@ onMounted(() => {
 
                     <div
                         v-for="reply in replies"
-                        :key="reply.id"
+                        :key="reply.reply_id"
                         class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
                         <div class="flex items-start gap-4">
+                            <!-- 使用新字段名 avatar_url -->
                             <img
-                                :src="getAvatarUrl(reply.author.avatar)"
+                                :src="getAvatarUrl(reply.author.avatar_url)"
                                 class="h-10 w-10 rounded-full object-cover"
                                 alt="avatar" />
                             <div class="min-w-0 flex-1">
                                 <div class="mb-2 flex items-center justify-between">
                                     <div class="flex items-center gap-2">
                                         <span class="font-medium text-gray-900">{{ reply.author.username }}</span>
-                                        <span class="text-xs text-gray-500">{{ formatDate(reply.createdAt) }}</span>
+                                        <!-- 使用新字段名 created_at -->
+                                        <span class="text-xs text-gray-500">{{ formatDate(reply.created_at) }}</span>
                                     </div>
+                                    <!-- 使用 isReplyCertified 函数判断是否精选 -->
                                     <div
-                                        v-if="reply.isCertified"
+                                        v-if="isReplyCertified(reply.status)"
                                         class="flex items-center gap-1 text-sm font-medium text-green-600">
                                         <CheckmarkCircle class="h-4 w-4" />
                                         <span>已认证</span>

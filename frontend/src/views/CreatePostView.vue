@@ -32,22 +32,20 @@ const handlePublish = async () => {
 
     loading.value = true
     try {
+        // createPost 返回 { post_id: string }
         const res = await postsStore.createPost({
             title: title.value,
             content: content.value,
             tags: selectedTopics.value,
+            image_urls: [], // 必需字段，暂时为空数组
         })
 
-        if (res.code === 200) {
-            message.success('发布成功')
-            const newPostId = res.data.post.id
-            if (newPostId) {
-                router.push(`/posts/${newPostId}`)
-            } else {
-                router.push('/')
-            }
+        message.success('发布成功')
+        // 使用返回的 post_id 跳转
+        if (res.post_id) {
+            router.push(`/posts/${res.post_id}`)
         } else {
-            message.error(res.message || '发布失败')
+            router.push('/')
         }
     } catch (e: any) {
         console.error(e)

@@ -5,321 +5,349 @@ import type {
     GetPostDetailResponse,
     CreatePostRequest,
     CreatePostResponse,
+    UpdatePostRequest,
+    UpdatePostResponse,
     GetRepliesParams,
     GetRepliesResponse,
     CreateReplyRequest,
     CreateReplyResponse,
     LikeResponse,
-    BookmarkResponse,
+    LikeQueryResponse,
+    StarResponse,
+    StarQueryResponse,
     GetTagsResponse,
     GetBookmarksResponse,
     Post,
     Reply,
-    Author,
+    PostWithAuthor,
+    ReplyWithAuthor,
+    Pagination,
 } from '@/types'
 
-// Helper to map role int to string
-const mapRole = (role: number): string => {
-    switch (role) {
-        case 1:
-            return 'student'
-        case 2:
-            return 'assistant'
-        case 3:
-            return 'teacher'
-        case 4:
-            return 'admin'
-        default:
-            return 'student'
-    }
-}
+// ============ 数据转换工具函数 ============
 
-// Helper to map status int to string/enum
-const mapPostStatus = (status: number): 'pending' | 'approved' | 'rejected' => {
-    // Backend: 1:未解决 2:已解决 3:已认证
-    // Frontend: 'pending' | 'approved' | 'rejected'
-    // Mapping: 1->pending, 2->approved, 3->approved (certified is a separate flag in frontend type?)
-    // Wait, Frontend type has `hasCertifiedAnswer`.
-    // Let's map 1->pending, 2->approved, 3->approved.
-    // Ideally frontend types should match backend semantics more closely, but for now:
-    switch (status) {
-        case 1:
-            return 'pending'
-        case 2:
-            return 'approved'
-        case 3:
-            return 'approved'
-        default:
-            return 'pending'
-    }
-}
-
-// Helper to map backend post data to frontend Post type
-const mapBackendPost = (data: any): Post => {
+/**
+ * 将后端返回的 PostWithAuthor 转换为前端使用的扁平化 Post 类型
+ */
+const mapPostWithAuthor = (data: PostWithAuthor): Post => {
     const { post_data, user_info } = data
     return {
-        id: post_data.post_id,
-        title: post_data.title,
-        content: post_data.content,
-        tags: post_data.tags || [],
-        category: 'general', // Backend doesn't have category yet
-        author: {
-            id: user_info.user_id,
-            username: user_info.username,
-            avatar: user_info.avatar_url,
-            role: mapRole(user_info.role),
-        },
-        status: mapPostStatus(post_data.status),
-        isAnonymous: false, // Not in backend
-        replyCount: post_data.replies,
-        likeCount: post_data.likes,
-        viewCount: post_data.views,
-        hasCertifiedAnswer: post_data.status === 3, // Assuming status 3 means certified
-        createdAt: post_data.created_at,
-        updatedAt: post_data.updated_at,
-        // image_urls handled in content usually, but if separate:
-        // post_data.image_urls
+        ...post_data,
+        author: user_info,
     }
 }
 
-// Helper to map backend reply data to frontend Reply type
-const mapBackendReply = (data: any): Reply => {
+/**
+ * 将后端返回的 ReplyWithAuthor 转换为前端使用的扁平化 Reply 类型
+ */
+const mapReplyWithAuthor = (data: ReplyWithAuthor): Reply => {
     const { reply_data, user_info } = data
     return {
-        id: reply_data.reply_id,
-        content: reply_data.content,
-        author: {
-            id: user_info.user_id,
-            username: user_info.username,
-            avatar: user_info.avatar_url,
-            role: mapRole(user_info.role),
-        },
-        parentId: reply_data.parent_reply_id,
-        postId: reply_data.post_id,
-        status: 'approved', // Default
-        isAnonymous: false,
-        isCertified: reply_data.status === 2 || reply_data.status === 3, // 2:author certified, 3:teacher certified
-        likeCount: 0, // Backend reply_data doesn't seem to have likes count in the list response? Check docs.
-        // Docs say: 2.3.2 Response data structure for reply_data includes: status, created_at, content, voice_url, etc.
-        // Docs MISSING likes count in reply_data!
-        // Assuming 0 for now.
-        createdAt: reply_data.created_at,
-        updatedAt: reply_data.created_at,
+        ...reply_data,
+        author: user_info,
     }
 }
 
-export const forumApi = {
-    // 获取帖子列表
-    getPosts: async (params?: GetPostsParams): Promise<GetPostsResponse> => {
-        // Map frontend params to backend params
-        // Backend: offset, limit, order (0:recc, 1:hot, 2:new)
-        // Frontend: page, limit, sortBy...
-        const limit = params?.limit || 10
-        const offset = ((params?.page || 1) - 1) * limit
-        let order = 0
-        if (params?.sortBy === 'createdAt') order = 2
-        // ... more mapping if needed
+/**
+ * 计算分页信息（后端使用 offset，前端使用 page）
+ * TODO: 后端应补充返回 total 字段
+ */
+const calculatePagination = (offset: number, limit: number, dataLength: number): Pagination => {
+    const page = Math.floor(offset / limit) + 1
+    // 注意：后端未返回 total，这里使用估算值
+    // 如果返回数据量等于 limit，假设还有更多数据
+    const hasMore = dataLength >= limit
+    const estimatedTotal = hasMore ? offset + limit + 1 : offset + dataLength
 
-        const res: any = await request.get('/api/v1/forum/posts', {
-            params: {
-                offset,
-                limit,
-                order,
-            },
+    return {
+        page,
+        limit,
+        total: estimatedTotal, // 估算值，后端应补充返回真实 total
+        total_pages: Math.ceil(estimatedTotal / limit),
+    }
+}
+
+// ============ 论坛 API ============
+
+export const forumApi = {
+    // ============ 帖子相关 ============
+
+    /**
+     * 获取帖子列表
+     */
+    getPosts: async (params?: GetPostsParams): Promise<{ posts: Post[]; pagination: Pagination }> => {
+        const limit = params?.limit || 10
+        const offset = params?.offset || 0
+        const order = params?.order ?? 0
+
+        const res = await request.get<GetPostsResponse>('/api/v1/forum/posts', {
+            params: { offset, limit, order },
         })
 
-        // res is { code, data: [...], message }
-        const posts = (res.data || []).map(mapBackendPost)
+        const posts = (res.data || []).map(mapPostWithAuthor)
 
         return {
-            code: res.code,
-            message: res.message,
-            data: {
-                posts,
-                pagination: {
-                    page: params?.page || 1,
-                    limit,
-                    total: 100, // Mock total, backend doesn't provide
-                    totalPages: 10, // Mock
-                },
-            },
+            posts,
+            pagination: calculatePagination(offset, limit, posts.length),
         }
     },
 
-    // 获取帖子详情
-    getPostDetail: async (postId: string): Promise<GetPostDetailResponse> => {
-        const res: any = await request.get(`/api/v1/forum/posts/${postId}`)
-        // res.data is { post_data, user_info }
-        const post = mapBackendPost(res.data)
+    /**
+     * 获取帖子详情
+     */
+    getPostDetail: async (postId: string): Promise<{ post: Post }> => {
+        const res = await request.get<GetPostDetailResponse>(`/api/v1/forum/posts/${postId}`)
+        const post = mapPostWithAuthor(res.data)
 
-        return {
-            code: res.code,
-            message: res.message,
-            data: { post },
-        }
+        return { post }
     },
 
-    // 创建帖子
-    createPost: async (data: CreatePostRequest): Promise<CreatePostResponse> => {
-        const res: any = await request.post('/api/v1/forum/posts', {
+    /**
+     * 创建帖子
+     */
+    createPost: async (data: CreatePostRequest): Promise<{ post_id: string }> => {
+        const res = await request.post<CreatePostResponse>('/api/v1/forum/posts', {
             title: data.title,
             content: data.content,
             tags: data.tags,
-            image_urls: [], // TODO: handle images
+            image_urls: data.image_urls || [],
         })
 
+        return { post_id: res.data.post_id }
+    },
+
+    /**
+     * 更新帖子
+     */
+    updatePost: async (postId: string, data: UpdatePostRequest): Promise<void> => {
+        await request.patch<UpdatePostResponse>(`/api/v1/forum/posts/${postId}`, data)
+    },
+
+    /**
+     * 删除帖子
+     */
+    deletePost: async (postId: string): Promise<void> => {
+        await request.delete(`/api/v1/forum/posts/${postId}`)
+    },
+
+    // ============ 帖子点赞相关 ============
+
+    /**
+     * 查询用户是否点赞了帖子
+     */
+    checkPostLike: async (postId: string): Promise<boolean> => {
+        const res = await request.get<LikeQueryResponse>(`/api/v1/forum/posts/like/${postId}`)
+        return res.data.liked
+    },
+
+    /**
+     * 点赞帖子
+     */
+    likePost: async (postId: string): Promise<void> => {
+        await request.post<LikeResponse>(`/api/v1/forum/posts/like/${postId}`)
+    },
+
+    /**
+     * 取消点赞帖子
+     */
+    unlikePost: async (postId: string): Promise<void> => {
+        await request.delete<LikeResponse>(`/api/v1/forum/posts/like/${postId}`)
+    },
+
+    /**
+     * 切换帖子点赞状态（先查询再操作）
+     */
+    togglePostLike: async (postId: string): Promise<{ is_liked: boolean; likes: number }> => {
+        const isLiked = await forumApi.checkPostLike(postId)
+
+        if (isLiked) {
+            await forumApi.unlikePost(postId)
+        } else {
+            await forumApi.likePost(postId)
+        }
+
+        // 重新获取帖子详情以获取最新点赞数
+        const { post } = await forumApi.getPostDetail(postId)
+
         return {
-            code: res.code,
-            message: res.message,
-            data: {
-                post: {
-                    id: res.data.post_id,
-                    ...data,
-                    category: 'general',
-                    author: {} as any, // Missing
-                    status: 'pending',
-                    isAnonymous: false,
-                    replyCount: 0,
-                    likeCount: 0,
-                    viewCount: 0,
-                    hasCertifiedAnswer: false,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                },
-            },
+            is_liked: !isLiked,
+            likes: post.likes,
         }
     },
 
-    // 更新帖子
-    updatePost: (postId: string, data: Partial<CreatePostRequest>): Promise<CreatePostResponse> => {
-        return request.patch(`/api/v1/forum/posts/${postId}`, data)
+    // ============ 帖子收藏相关 ============
+
+    /**
+     * 查询用户是否收藏了帖子
+     */
+    checkPostStar: async (postId: string): Promise<boolean> => {
+        const res = await request.get<StarQueryResponse>(`/api/v1/forum/posts/star/${postId}`)
+        return res.data.starred
     },
 
-    // 删除帖子
-    deletePost: (postId: string): Promise<void> => {
-        return request.delete(`/api/v1/forum/posts/${postId}`)
+    /**
+     * 收藏帖子
+     */
+    starPost: async (postId: string): Promise<void> => {
+        await request.post<StarResponse>(`/api/v1/forum/posts/star/${postId}`)
     },
 
-    // 获取回复列表
-    getReplies: async (postId: string, params?: GetRepliesParams): Promise<GetRepliesResponse> => {
+    /**
+     * 取消收藏帖子
+     */
+    unstarPost: async (postId: string): Promise<void> => {
+        await request.delete<StarResponse>(`/api/v1/forum/posts/star/${postId}`)
+    },
+
+    /**
+     * 切换帖子收藏状态
+     */
+    togglePostStar: async (postId: string): Promise<{ is_starred: boolean }> => {
+        const isStarred = await forumApi.checkPostStar(postId)
+
+        if (isStarred) {
+            await forumApi.unstarPost(postId)
+        } else {
+            await forumApi.starPost(postId)
+        }
+
+        return { is_starred: !isStarred }
+    },
+
+    /**
+     * 获取收藏列表
+     */
+    getBookmarks: async (params?: { offset?: number; limit?: number }): Promise<{ posts: Post[]; pagination: Pagination }> => {
+        const limit = params?.limit || 20
+        const offset = params?.offset || 0
+
+        const res = await request.get<GetBookmarksResponse>('/api/v1/forum/posts/starred', {
+            params: { offset, limit },
+        })
+
+        const posts = (res.data || []).map(mapPostWithAuthor)
+
+        return {
+            posts,
+            pagination: calculatePagination(offset, limit, posts.length),
+        }
+    },
+
+    // ============ 回复相关 ============
+
+    /**
+     * 获取帖子下的回复列表
+     */
+    getReplies: async (postId: string, params?: GetRepliesParams): Promise<{ replies: Reply[]; pagination: Pagination }> => {
         const limit = params?.limit || 10
-        const offset = ((params?.page || 1) - 1) * limit
+        const offset = params?.offset || 0
 
-        const res: any = await request.get(`/api/v1/forum/posts/${postId}/replies`, {
-            params: {
-                offset,
-                limit,
-            },
+        const res = await request.get<GetRepliesResponse>(`/api/v1/forum/posts/${postId}/replies`, {
+            params: { offset, limit },
         })
 
-        const replies = (res.data || []).map(mapBackendReply)
+        const replies = (res.data || []).map(mapReplyWithAuthor)
 
         return {
-            code: res.code,
-            message: res.message,
-            data: {
-                replies,
-                pagination: {
-                    page: params?.page || 1,
-                    limit,
-                    total: 100, // Mock
-                    totalPages: 10,
-                },
-            },
+            replies,
+            pagination: calculatePagination(offset, limit, replies.length),
         }
     },
 
-    // 创建回复
-    createReply: async (postId: string, data: CreateReplyRequest): Promise<CreateReplyResponse> => {
-        // Backend: POST /api/v1/forum/replies
-        // Body: post_id, parent_reply_id, content, ...
-        const res: any = await request.post('/api/v1/forum/replies', {
+    /**
+     * 创建回复
+     */
+    createReply: async (postId: string, data: CreateReplyRequest): Promise<{ reply_id: string }> => {
+        const res = await request.post<CreateReplyResponse>('/api/v1/forum/replies', {
             post_id: postId,
-            parent_reply_id: data.parentId || null,
+            parent_reply_id: data.parent_reply_id || null,
             content: data.content,
-            image_urls: [],
-            voice_url: '',
+            image_urls: data.image_urls || [],
+            voice_url: data.voice_url || '',
         })
 
-        return {
-            code: res.code,
-            message: res.message,
-            data: {
-                reply: {
-                    id: res.data.reply_id,
-                    content: data.content,
-                    author: {} as any, // Missing
-                    parentId: data.parentId,
-                    postId: postId,
-                    status: 'approved',
-                    isAnonymous: false,
-                    isCertified: false,
-                    likeCount: 0,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                },
-            },
+        return { reply_id: res.data.reply_id }
+    },
+
+    /**
+     * 删除回复
+     * 注意：后端文档未明确此接口，需确认
+     */
+    deleteReply: async (replyId: string): Promise<void> => {
+        await request.delete(`/api/v1/forum/replies/${replyId}`)
+    },
+
+    // ============ 回复点赞相关 ============
+
+    /**
+     * 查询用户是否点赞了回复
+     */
+    checkReplyLike: async (replyId: string): Promise<boolean> => {
+        const res = await request.get<LikeQueryResponse>(`/api/v1/forum/replies/like/${replyId}`)
+        return res.data.liked
+    },
+
+    /**
+     * 点赞回复
+     */
+    likeReply: async (replyId: string): Promise<void> => {
+        await request.post<LikeResponse>(`/api/v1/forum/replies/like/${replyId}`)
+    },
+
+    /**
+     * 取消点赞回复
+     */
+    unlikeReply: async (replyId: string): Promise<void> => {
+        await request.delete<LikeResponse>(`/api/v1/forum/replies/like/${replyId}`)
+    },
+
+    /**
+     * 切换回复点赞状态
+     */
+    toggleReplyLike: async (replyId: string): Promise<{ is_liked: boolean }> => {
+        const isLiked = await forumApi.checkReplyLike(replyId)
+
+        if (isLiked) {
+            await forumApi.unlikeReply(replyId)
+        } else {
+            await forumApi.likeReply(replyId)
         }
+
+        return { is_liked: !isLiked }
     },
 
-    // 更新回复
-    updateReply: (postId: string, replyId: string, data: Partial<CreateReplyRequest>): Promise<CreateReplyResponse> => {
-        // Not implemented in backend docs yet? Or use same interface?
-        return request.patch(`/api/v1/forum/posts/${postId}/replies/${replyId}`, data)
+    // ============ 其他 ============
+
+    /**
+     * 获取标签列表
+     * 注意：后端暂未实现此接口
+     */
+    getTags: async (): Promise<GetTagsResponse> => {
+        // TODO: 后端需要实现此接口
+        return { code: 200, message: '', data: { tags: [] } }
     },
 
-    // 删除回复
-    deleteReply: (postId: string, replyId: string): Promise<void> => {
-        // Backend docs don't explicitly list DELETE /replies/{id}, but usually it exists or use post path.
-        // Wait, docs say: nothing about delete reply?
-        // Let's assume standard REST for now or check docs again.
-        // Docs missing DELETE reply.
-        return request.delete(`/api/v1/forum/replies/${replyId}`)
+    /**
+     * 上传文件（图片/语音等）
+     */
+    uploadFile: async (file: File): Promise<{ image_url: string }> => {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const res = await request.post<{ code: number; data: { image_url: string }; message: string }>(
+            '/api/v1/forum/upload',
+            formData,
+        )
+
+        return { image_url: res.data.image_url }
     },
 
-    // 点赞/取消点赞帖子
-    likePost: (postId: string): Promise<LikeResponse> => {
-        return request.post(`/api/v1/forum/posts/like/${postId}`)
-    },
-
-    // 点赞/取消点赞回复
-    likeReply: (postId: string, replyId: string): Promise<LikeResponse> => {
-        return request.post(`/api/v1/forum/replies/like/${replyId}`)
-    },
-
-    // 收藏/取消收藏帖子
-    bookmarkPost: (postId: string): Promise<BookmarkResponse> => {
-        return request.post(`/api/v1/forum/posts/star/${postId}`)
-    },
-
-    // 获取收藏列表
-    getBookmarks: async (params?: GetPostsParams): Promise<GetBookmarksResponse> => {
-        const res: any = await request.get('/api/v1/forum/posts/starred', { params: { offset: 0, limit: 20 } })
-        const bookmarks = (res.data || []).map(mapBackendPost) // It returns list of posts
-        return {
-            code: res.code,
-            message: res.message,
-            data: {
-                bookmarks,
-                pagination: {
-                    page: 1,
-                    limit: 20,
-                    total: bookmarks.length,
-                    totalPages: 1,
-                },
-            },
-        }
-    },
-
-    // 获取标签列表
-    getTags: (): Promise<GetTagsResponse> => {
-        // Backend doesn't have getTags?
-        return Promise.resolve({ code: 200, message: '', data: { tags: [] } })
-    },
-
-    // 认证回复（标记为最佳答案）
-    certifyReply: (postId: string, replyId: string): Promise<CreateReplyResponse> => {
-        // Missing backend API
-        return Promise.resolve({ code: 200, message: 'Not implemented', data: { reply: {} as any } })
+    /**
+     * 认证回复（标记为精选答案）
+     * 注意：后端暂未实现此接口
+     */
+    certifyReply: async (postId: string, replyId: string): Promise<void> => {
+        // TODO: 后端需要实现此接口
+        console.warn('certifyReply API 尚未实现', { postId, replyId })
     },
 }
