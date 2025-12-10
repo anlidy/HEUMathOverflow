@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { useUserStore } from '@/stores/useUserStore'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { PersonOutline, SettingsOutline, LogOutOutline } from '@vicons/ionicons5'
+import { PersonOutline, SettingsOutline, LogOutOutline, LogInOutline, PersonAddOutline } from '@vicons/ionicons5'
 import Avatar from '@/components/display/Avatar.vue'
 import { getAvatarUrl } from '@/utils/avatar'
 
 const userStore = useUserStore()
 const userInfo = computed(() => userStore.userInfo)
 const avatarSrc = computed(() => getAvatarUrl(userInfo.value?.avatar_url))
-
+const isLoggedIn = computed(() => userInfo.value !== null)
 const showPanel = ref(false)
 const panelRef = ref<HTMLDivElement | null>(null)
 
@@ -37,7 +36,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="relative">
+    <div class="relative" v-if="isLoggedIn">
         <Avatar :avatarUrl="avatarSrc" :clickable="true" size="28px" @click.stop="togglePanel" />
         <Transition
             enter-active-class="transition ease-out duration-100"
@@ -70,7 +69,7 @@ onUnmounted(() => {
                         </router-link>
                         <router-link
                             @click="handleLogout"
-                            to="/login"
+                            to="/"
                             class="flex w-full cursor-pointer items-center justify-start gap-1 rounded-md p-2 text-sm text-gray-500 hover:bg-gray-100">
                             <LogOutOutline class="h-4 w-4" />
                             Logout
@@ -79,5 +78,19 @@ onUnmounted(() => {
                 </div>
             </template>
         </Transition>
+    </div>
+    <div v-else class="flex items-center justify-start gap-1 rounded-md p-2 text-sm text-gray-500">
+        <button
+            @click="$router.push('/login')"
+            class="flex cursor-pointer items-center gap-1 rounded-lg bg-transparent px-3 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800">
+            <LogInOutline class="h-4 w-4" />
+            登录
+        </button>
+        <button
+            @click="$router.push('/register')"
+            class="flex cursor-pointer items-center gap-1 rounded-lg bg-transparent px-3 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800">
+            <PersonAddOutline class="h-4 w-4" />
+            注册
+        </button>
     </div>
 </template>

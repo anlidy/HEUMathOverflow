@@ -168,13 +168,6 @@ export const forumApi = {
             image_urls: [], // TODO: handle images
         })
 
-        // Backend returns { post_id } in data
-        // We can't fully reconstruct the post object without fetching it,
-        // but frontend expects a Post object.
-        // We might need to fetch it or mock it.
-        // For now, let's just mock a minimal return or fetch it.
-        // To be safe and correct, we should probably return what we can.
-
         return {
             code: res.code,
             message: res.message,

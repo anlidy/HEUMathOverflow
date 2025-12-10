@@ -4,45 +4,32 @@ import MainNav from '@/features/header/MainNav.vue'
 import UserMenu from '@/features/user/UserMenu.vue'
 import SearchBar from '@/components/form/SearchBar.vue'
 import PostList from '@/features/discussion/PostList.vue'
-import TopicBar from '@/components/common/TopicBar.vue'
+import TagBar from '@/components/common/TagBar.vue'
 import { AddOutline } from '@vicons/ionicons5'
-import type { TopicItem } from '@/types/common'
 import { ref, onMounted } from 'vue'
 import { usePostsStore } from '@/stores/usePostsStore'
 
 const postsStore = usePostsStore()
 const loading = ref(false)
 
-const topics = ref<TopicItem[]>([
-    { id: 0, name: '推荐' },
-    { id: 1, name: '最热' },
-    { id: 2, name: '最新' },
-])
-
-const selectedTopic = ref<TopicItem>({ id: 0, name: '推荐' })
+// 标签列表
+const tags = ref<string[]>(['全部', '线性代数', '微积分', '概率论', '离散数学', '数值分析'])
+const selectedTag = ref('全部')
 
 const fetchPosts = async () => {
     loading.value = true
     try {
-        let sortBy: 'createdAt' | 'replyCount' | undefined = undefined
-        if (selectedTopic.value.id === 2) {
-            sortBy = 'createdAt'
-        } else if (selectedTopic.value.id === 1) {
-            sortBy = 'replyCount' // Assuming hot means reply count for now
-        }
-        // id 0 (Rec) - default backend order
-
         await postsStore.getPosts({
-            sortBy,
-            // limit: 20
+            // 可以根据选中的标签过滤
+            tags: selectedTag.value !== '全部' ? [selectedTag.value] : undefined,
         })
     } finally {
         loading.value = false
     }
 }
 
-const handleTopicSelect = (topic: TopicItem) => {
-    selectedTopic.value = topic
+const handleTagSelect = (tag: string) => {
+    selectedTag.value = tag
     fetchPosts()
 }
 
@@ -68,7 +55,8 @@ onMounted(() => {
         <main class="mx-auto mt-8 flex w-full max-w-[1200px] flex-1 gap-8 px-4">
             <section class="flex flex-1 flex-col">
                 <div class="mb-6 flex items-center justify-between">
-                    <TopicBar :topics="topics" :selectedTopic="selectedTopic" @select="handleTopicSelect" />
+                    <!-- 标签栏 -->
+                    <TagBar :tags="tags" :selectedTag="selectedTag" @select="handleTagSelect" />
                     <button
                         @click="$router.push('/editor/create')"
                         class="flex cursor-pointer items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-800">

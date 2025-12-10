@@ -1,20 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { forumApi } from '@/services/forum'
-import type { Post, Reply } from '@/types'
+import { usePostsStore } from '@/stores/usePostsStore'
 import ContentRenderer from '@/features/editor/components/ContentRenderer.vue'
-import Editor from '@/features/editor/components/Editor.vue'
 import { getAvatarUrl } from '@/utils/avatar'
-import {
-    ArrowBackOutline,
-    HeartOutline,
-    Heart,
-    ChatboxOutline,
-    CheckmarkCircle,
-    PersonOutline,
-} from '@vicons/ionicons5'
-import { useMessage } from 'naive-ui' // Or custom useMessage
+import { ArrowBackOutline, ChatboxOutline, CheckmarkCircle, PersonOutline, ThumbsUpOutline } from '@vicons/ionicons5'
+import { useMessage } from 'naive-ui'
 
 // Fallback date formatter if timeago not available
 const formatDate = (dateStr: string) => {
@@ -30,23 +21,21 @@ const formatDate = (dateStr: string) => {
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const postsStore = usePostsStore()
 
 const postId = route.params.id as string
-const post = ref<Post | null>(null)
-const replies = ref<Reply[]>([])
 const loading = ref(true)
 const replyContent = ref('')
 const submitting = ref(false)
 
+// 从 store 中获取数据
+const post = computed(() => postsStore.currentPost)
+const replies = computed(() => postsStore.getPostReplies(postId))
+
 const fetchPost = async () => {
     try {
         loading.value = true
-        const res = await forumApi.getPostDetail(postId)
-        if (res.code === 200) {
-            post.value = res.data.post
-        } else {
-            message.error(res.message || '获取帖子失败')
-        }
+        await postsStore.getPostDetail(postId)
     } catch (e) {
         console.error(e)
         message.error('获取帖子失败')
@@ -57,39 +46,29 @@ const fetchPost = async () => {
 
 const fetchReplies = async () => {
     try {
-        const res = await forumApi.getReplies(postId, { limit: 50 }) // Fetch 50 for now
-        if (res.code === 200) {
-            replies.value = res.data.replies
-        }
+        await postsStore.getReplies(postId, { limit: 50 })
     } catch (e) {
         console.error(e)
+        message.error('获取评论失败')
     }
 }
 
 const handleSubmitReply = async () => {
-    if (!replyContent.value || replyContent.value === '<p></p>') {
-        message.warning('请输入回复内容')
+    if (!replyContent.value || replyContent.value.trim() === '') {
+        message.warning('请输入评论内容')
         return
     }
 
     try {
         submitting.value = true
-        const res = await forumApi.createReply(postId, {
+        await postsStore.createReply(postId, {
             content: replyContent.value,
         })
-
-        if (res.code === 200) {
-            message.success('回复成功')
-            replyContent.value = ''
-            await fetchReplies() // Refresh replies
-            // Optionally update reply count
-            if (post.value) post.value.replyCount++
-        } else {
-            message.error(res.message || '回复失败')
-        }
+        message.success('评论成功')
+        replyContent.value = ''
     } catch (e) {
         console.error(e)
-        message.error('回复失败')
+        message.error('评论失败')
     } finally {
         submitting.value = false
     }
@@ -120,13 +99,12 @@ onMounted(() => {
                 <!-- Back Button -->
                 <button
                     @click="goBack"
-                    class="mb-4 flex items-center gap-1 text-gray-500 transition-colors hover:text-gray-900">
+                    class="mb-4 flex cursor-pointer items-center gap-1 rounded-xl bg-gray-100 p-2 text-gray-500 transition-colors hover:bg-transparent hover:text-gray-900">
                     <ArrowBackOutline class="h-5 w-5" />
-                    <span>返回列表</span>
                 </button>
 
                 <!-- Post Card -->
-                <div class="overflow-hidden rounded-xl border border-gray-100 bg-white p-8 shadow-sm">
+                <div class="overflow-hidden rounded-xl border-gray-100 bg-transparent">
                     <!-- Header -->
                     <div class="mb-6">
                         <div class="flex items-start justify-between">
@@ -162,32 +140,47 @@ onMounted(() => {
                         </div>
                     </div>
 
-                    <div class="my-6 border-t border-gray-100"></div>
-
                     <!-- Body -->
                     <ContentRenderer :content="post.content" />
 
                     <!-- Footer Actions -->
-                    <div class="mt-8 flex items-center gap-6 border-t border-gray-100 pt-6">
-                        <button class="flex items-center gap-2 text-gray-500 transition-colors hover:text-red-500">
-                            <HeartOutline class="h-5 w-5" />
-                            <span>{{ post.likeCount }} 点赞</span>
+                    <div class="mt-8 flex items-center gap-6 border-gray-100">
+                        <button
+                            class="flex cursor-pointer items-center gap-2 text-gray-500 transition-colors hover:text-red-500">
+                            <ThumbsUpOutline class="h-5 w-5" />
+                            <span>{{ post.likeCount }}</span>
                         </button>
-                        <button class="flex items-center gap-2 text-gray-500 transition-colors hover:text-blue-500">
+                        <button
+                            class="flex cursor-pointer items-center gap-2 text-gray-500 transition-colors hover:text-blue-500">
                             <ChatboxOutline class="h-5 w-5" />
-                            <span>{{ post.replyCount }} 回复</span>
+                            <span>{{ post.replyCount }}</span>
                         </button>
                     </div>
                 </div>
 
                 <!-- Replies Section -->
-                <div class="space-y-4">
-                    <h3 class="px-2 text-lg font-semibold text-gray-900">{{ replies.length }} 条回复</h3>
-
+                <div class="flex flex-col space-y-4">
+                    <h3 class="text-lg font-semibold text-gray-900">{{ replies.length }} 条评论</h3>
+                    <!-- Reply Editor -->
+                    <div class="mt-6 rounded-xl border-gray-100 bg-white shadow-sm">
+                        <textarea
+                            v-model="replyContent"
+                            class="min-h-[80px] w-full resize-none p-4 outline-none"
+                            placeholder="请输入评论"></textarea>
+                        <div class="flex items-center justify-between p-4">
+                            <div class="flex h-5 min-w-[50px] gap-2"></div>
+                            <button
+                                @click="handleSubmitReply"
+                                :disabled="submitting"
+                                class="cursor-pointer rounded-lg bg-gray-900 px-2 py-1 text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50">
+                                {{ submitting ? '发送中...' : '评论' }}
+                            </button>
+                        </div>
+                    </div>
                     <div
                         v-if="replies.length === 0"
                         class="rounded-xl border border-gray-100 bg-white p-8 text-center text-gray-500">
-                        暂无回复，快来抢沙发吧~
+                        暂无评论
                     </div>
 
                     <div
@@ -216,23 +209,6 @@ onMounted(() => {
                                 <ContentRenderer :content="reply.content" />
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Reply Editor -->
-                <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
-                    <h3 class="mb-4 text-lg font-semibold text-gray-900">发表回复</h3>
-                    <div class="overflow-hidden rounded-lg border border-gray-200">
-                        <!-- We override PostEditor styles slightly to fit better -->
-                        <Editor v-model="replyContent" class="min-h-[200px]" />
-                    </div>
-                    <div class="mt-4 flex justify-end">
-                        <button
-                            @click="handleSubmitReply"
-                            :disabled="submitting"
-                            class="rounded-lg bg-gray-900 px-6 py-2 text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50">
-                            {{ submitting ? '发布中...' : '发布回复' }}
-                        </button>
                     </div>
                 </div>
             </div>

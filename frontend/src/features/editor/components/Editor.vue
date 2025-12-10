@@ -61,7 +61,7 @@ const editor = useEditor({
     ],
     editorProps: {
         attributes: {
-            class: 'tiptap max-w-none focus:outline-none min-h-[200px] px-4 py-2', // Adjusted defaults, can be overridden by parent styles if needed, but 'tiptap' class is key
+            class: 'tiptap max-w-none focus:outline-none min-h-[100px] px-4 py-2',
         },
     },
     onSelectionUpdate: () => {
@@ -129,7 +129,10 @@ defineExpose({
 
 <template>
     <!-- Editor Container -->
-    <div class="group editor-container relative w-full" @mousemove="handleMouseMove" @mouseleave="handleMouseLeave">
+    <div
+        class="group editor-container relative w-full px-10 py-4"
+        @mousemove="handleMouseMove"
+        @mouseleave="handleMouseLeave">
         <!-- Floating Plus Button -->
         <FloatingMenu ref="floatingMenuRef" :editor="editor as any" />
         <EditorContent class="editor-content" :editor="editor as any" />
@@ -138,8 +141,4 @@ defineExpose({
 
 <style scoped>
 /* 样式已迁移至 assets/styles/editor.css */
-.editor-container {
-    min-height: 500px;
-    padding: 1rem 2.5rem; /* px-10 py-4 */
-}
 </style>
