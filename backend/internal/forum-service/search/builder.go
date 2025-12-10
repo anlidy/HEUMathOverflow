@@ -25,8 +25,8 @@ func BuildQuery(req request.SearchRequest) map[string]any {
 	if req.Query != "" {
 		must = append(must, map[string]any{
 			"multi_match": map[string]any{
-				"query":  req.Query,                      // 基于分词的模糊匹配
-				"fields": []string{"title^3", "content"}, // 匹配区域及权重
+				"query":  req.Query,                                       // 基于分词的模糊匹配
+				"fields": []string{"title^3", "author_name^2", "content"}, // 匹配区域及权重
 			},
 		})
 	}
