@@ -37,10 +37,11 @@ type RedisConfig struct {
 }
 
 type RabbitMQConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
+	Host            string
+	Port            int
+	User            string
+	Password        string
+	PostWorkerCount int64 `mapstructure:"post_worker_count"`
 }
 
 type ElasticsearchConfig struct {

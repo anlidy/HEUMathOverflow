@@ -184,6 +184,9 @@ func (pc *ReplyController) LikeOneReply(c *gin.Context) {
 	case syserror.DuplicateError:
 		c.JSON(http.StatusConflict, gin.H{"message": "您已点过赞", "code": http.StatusConflict})
 		return
+	case syserror.NotFoundError:
+		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要点赞的回帖", "code": http.StatusNotFound})
+		return
 	case syserror.InternalError:
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
 		return

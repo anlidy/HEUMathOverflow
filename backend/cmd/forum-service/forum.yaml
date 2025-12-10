@@ -27,13 +27,18 @@ redis:
   password: ""
   db: 0
 
+grpc:
+  expose_port:  50052
+  user_service_addr: user-service:50051
+
 rabbitmq:
   host: rabbitmq
   port: 5672
   user: rabbitadmin
   password: rabbitadmin
-  vhost: /
+  post_worker_count: 10
 
-grpc:
-  expose_port:  50052
-  user_service_addr: user-service:50051
+elastic:
+  addresses:
+    - http://elasticsearch:9200
+  index: forum_posts

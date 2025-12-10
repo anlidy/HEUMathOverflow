@@ -2,7 +2,10 @@ package repository
 
 import (
 	"MathOverflow/internal/forum-service/model"
+	"context"
+	"fmt"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -16,14 +19,18 @@ type ReplyRepo interface {
 	CreateReplyLike(rl *model.ReplyLike) error
 	DeleteReplyLike(userID, replyID int64) error
 	HasReplyLike(userID, replyID int64) (bool, error)
+	// redis
+	IncreasePostReplies(ctx context.Context, postID int64) error
+	DecreasePostReplies(ctx context.Context, postID int64) error
 }
 
 type replyRepo struct {
-	pg *gorm.DB
+	pg  *gorm.DB
+	rdb *redis.Client
 }
 
-func NewReplyRepository(pg *gorm.DB) ReplyRepo {
-	return &replyRepo{pg: pg}
+func NewReplyRepository(pg *gorm.DB, rdb *redis.Client) ReplyRepo {
+	return &replyRepo{pg: pg, rdb: rdb}
 }
 
 // pg创建回帖记录
@@ -114,4 +121,30 @@ func (r *replyRepo) HasReplyLike(userID, replyID int64) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// redis增加 post replies 次数
+func (r *replyRepo) IncreasePostReplies(ctx context.Context, postID int64) error {
+	key := fmt.Sprintf("post:%d:stat", postID)
+
+	// 原子 +1，如果 key 或字段不存在，Redis 会自动创建
+	_, err := r.rdb.HIncrBy(ctx, key, "replies", 1).Result()
+	if err != nil {
+		return fmt.Errorf("increase replies failed: %w", err)
+	}
+
+	return nil
+}
+
+// redis减少 post replies 次数
+func (r *replyRepo) DecreasePostReplies(ctx context.Context, postID int64) error {
+	key := fmt.Sprintf("post:%d:stat", postID)
+
+	// 原子 -1，如果 key 或字段不存在，Redis 会自动创建
+	_, err := r.rdb.HIncrBy(ctx, key, "replies", -1).Result()
+	if err != nil {
+		return fmt.Errorf("decrease replies failed: %w", err)
+	}
+
+	return nil
 }

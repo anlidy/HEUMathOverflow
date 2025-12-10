@@ -9,8 +9,7 @@ func InitTriggers(db *gorm.DB) {
         RETURNS TRIGGER AS $$
         BEGIN
             UPDATE posts
-            SET last_reply_at = NEW.created_at,
-                replies = replies + 1
+            SET last_reply_at = NEW.created_at
             WHERE id = NEW.post_id;
             RETURN NEW;
         END;

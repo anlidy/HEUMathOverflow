@@ -11,8 +11,14 @@ import (
 )
 
 type RabbitMQClient struct {
-	Conn *amqp.Connection
+	Conn            *amqp.Connection
+	PostWorkerCount int64
 }
+
+const (
+	exchangeName = "app.events"
+	exchangeType = "topic"
+)
 
 // InitRabbitMQ 初始化 RabbitMQ 客户端，包含连接与默认通道
 func InitRabbitMQ(cfg config.RabbitMQConfig) (*RabbitMQClient, error) {
@@ -30,7 +36,11 @@ func InitRabbitMQ(cfg config.RabbitMQConfig) (*RabbitMQClient, error) {
 		conn, err = amqp.Dial(uri)
 		if err == nil {
 			fmt.Println("RabbitMQ connected:", uri)
-			return &RabbitMQClient{Conn: conn}, nil
+			log.Printf("PostWorker Count: %d\n", cfg.PostWorkerCount)
+			return &RabbitMQClient{
+				Conn:            conn,
+				PostWorkerCount: cfg.PostWorkerCount,
+			}, nil
 		}
 
 		log.Printf("连接 RabbitMQ 失败 (第 %d/%d 次): %v", i, maxRetries, err)
@@ -55,7 +65,7 @@ func (c *RabbitMQClient) Close() error {
 }
 
 // 生产者-事件发布
-func (c *RabbitMQClient) PublishEvent(eventType string, payload any) error {
+func (c *RabbitMQClient) PublishEvent(routeKey string, payload any) error {
 	// 业务数据序列化成 JSON
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -70,29 +80,64 @@ func (c *RabbitMQClient) PublishEvent(eventType string, payload any) error {
 
 	// 声明交换机
 	// O(1)操作,不会重复或影响性能
-	err = ch.ExchangeDeclare("app.events", "topic", true, false, false, false, nil)
+	err = ch.ExchangeDeclare(exchangeName, exchangeType, true, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 
 	// 发布消息到交换机
-	return ch.Publish("app.events", eventType, false, false, amqp.Publishing{
+	return ch.Publish(exchangeName, routeKey, false, false, amqp.Publishing{
 		ContentType: "application/json",
 		Body:        body,
 	})
 }
 
 // 消费者-声明队列
-func DeclareQueue(ch *amqp.Channel, qname string, key string) error {
-	// 声明交换机
-	err := ch.ExchangeDeclare("app.events", "topic", true, false, false, false, nil)
-	if err != nil {
+func DeclareQueue(ch *amqp.Channel, queueName string, bindingKey string, shardID int) error {
+	// QoS：每次只处理一条，处理完再给下一条，避免一个 worker 堆积太多未 ack 消息
+	if err := ch.Qos(1, 0, false); err != nil {
+		log.Printf("[Shard %d] set QoS failed: %v\n", shardID, err)
 		return err
 	}
-	// 声明queue
-	_, err = ch.QueueDeclare(qname, true, false, false, false, nil)
-	if err != nil {
+
+	// 声明 exchange（幂等）
+	if err := ch.ExchangeDeclare(
+		exchangeName,
+		exchangeType,
+		true,  // durable
+		false, // autoDelete
+		false,
+		false,
+		nil,
+	); err != nil {
+		log.Printf("[Shard %d] declare exchange failed: %v\n", shardID, err)
 		return err
 	}
-	return ch.QueueBind(qname, key, "app.events", false, nil)
+
+	// 声明自己的 shard 队列
+	q, err := ch.QueueDeclare(
+		queueName,
+		true,  // durable
+		false, // autoDelete
+		false, // exclusive
+		false, // noWait
+		nil,
+	)
+	if err != nil {
+		log.Printf("[Shard %d] declare queue failed: %v\n", shardID, err)
+		return err
+	}
+
+	// 绑定队列到 exchange 上
+	if err := ch.QueueBind(
+		q.Name,
+		bindingKey, // 只接收自己 shard 的消息
+		exchangeName,
+		false,
+		nil,
+	); err != nil {
+		log.Printf("[Shard %d] bind queue failed: %v\n", shardID, err)
+		return err
+	}
+	return nil
 }

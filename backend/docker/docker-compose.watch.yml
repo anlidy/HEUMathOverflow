@@ -197,7 +197,7 @@ services:
 
   redis:
     image: docker.io/library/redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command: ["redis-server", "--save", "", "--appendonly", "yes"]  # 开启持久化
     # ports:
     #   - "6379:6379"
     volumes:
@@ -234,7 +234,7 @@ services:
 
   # Elasticsearch 搜索引擎
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.8
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
@@ -254,7 +254,7 @@ services:
 
   # Kibana 可视化平台
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.13.0
+    image: docker.elastic.co/kibana/kibana:8.19.8
     container_name: kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
@@ -268,12 +268,12 @@ services:
 
   # RabbitMQ 消息队列服务（Topic Exchange）
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4.1.6-management
     container_name: rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD}
     tty: true
     ports:
       # - "5672:5672"     # MQ 连接端口

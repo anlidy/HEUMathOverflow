@@ -36,12 +36,12 @@ func main() {
 	eg, ctx := errgroup.WithContext(ctx)
 	// post消费者
 	eg.Go(func() error {
-		workerCount := 10                          // 消费者数量
 		postHandleFunc := consumer.HandlePostEvent // 消息处理函数
-		return consumer.StartPostConsumer(ctx, rabbit, es, workerCount, postHandleFunc)
+		return consumer.StartPostConsumer(ctx, rabbit, es, postHandleFunc)
 	})
 
 	if err := eg.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("es-service exit with error: %v", err)
 	}
+
 }

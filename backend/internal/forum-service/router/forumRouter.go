@@ -11,7 +11,8 @@ import (
 func SetupRouter(rdb *redis.Client,
 	forumContrller controller.ForumController,
 	postController controller.PostController,
-	replyController controller.ReplyController) *gin.Engine {
+	replyController controller.ReplyController,
+	searchController controller.SearchController) *gin.Engine {
 
 	r := gin.Default()
 	r.Use(middleware.CorsMiddleware([]string{"http://localhost:3000", "https://math-overflow.edu"}))
@@ -50,5 +51,9 @@ func SetupRouter(rdb *redis.Client,
 	authReply.POST("/like/:replyID", replyController.LikeOneReply)         // 点赞回复
 	authReply.DELETE("/like/:replyID", replyController.CancelLikeOneReply) // 取消点赞
 	authReply.GET("/like", replyController.GetReplyLikeStatus)             // 查询是否点赞
+
+	// 搜索
+	search := authForum.Group("/search")
+	search.POST("", searchController.SearchPosts) // 搜索帖子:tags和关键词共用
 	return r
 }
