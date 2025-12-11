@@ -25,7 +25,7 @@ import (
 type ReplyService interface {
 	CreateNewReply(ctx context.Context, userID int64, req request.ReplyCreate) (int64, syserror.Error)
 	GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
-	GetManyReplies(ctx context.Context, replyID int64, offset, limit int) ([]response.MultiReplyData, syserror.Error)
+	GetManyReplies(ctx context.Context, replyID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error)
 	UpdateOneReply(ctx context.Context, userID int64, replyID int64, req request.ReplyUpdate) syserror.Error
 	DeleteOneReply(ctx context.Context, replyID, userID int64, role int) syserror.Error
 	LikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error
@@ -190,15 +190,16 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID int64) (*respons
 }
 
 // 获取分页帖子
-func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset, limit int) ([]response.MultiReplyData, syserror.Error) {
+func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error) {
 	// 查询回帖信息
-	replies, err := s.replyRepo.FindRepliesByPostID(replyID, offset, limit)
+	offset := (page - 1) * limit // 计算偏移量
+	replies, total, err := s.replyRepo.FindRepliesByPostID(replyID, offset, limit)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, syserror.NotFoundError
+			return nil, 0, syserror.NotFoundError
 		}
 		log.Printf("[%s] %v\n", s.servName, err)
-		return nil, syserror.InternalError
+		return nil, 0, syserror.InternalError
 	}
 	// 查询回帖正文内容
 	// 构建查询的docID和userID数组
@@ -210,7 +211,7 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset
 	userClient, err := s.getUserClient()
 	if err != nil {
 		log.Printf("[%s] %v\n", s.servName, err)
-		return nil, syserror.NetworkError
+		return nil, 0, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
@@ -219,13 +220,13 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset
 		st, ok := status.FromError(err)
 		if !ok {
 			log.Println("非 gRPC 错误:", err)
-			return nil, syserror.NetworkError
+			return nil, 0, syserror.NetworkError
 		}
 		switch st.Code() {
 		case codes.Internal:
-			return nil, syserror.InternalError
+			return nil, 0, syserror.InternalError
 		case codes.Canceled:
-			return nil, syserror.NetworkError
+			return nil, 0, syserror.NetworkError
 		default:
 			log.Println(st.Message())
 		}
@@ -244,7 +245,7 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset
 		}
 		replyDatas[i].ReplyData.Reply = replies[i]
 	}
-	return replyDatas, syserror.NoError
+	return replyDatas, total, syserror.NoError
 }
 
 // 更新一条回帖

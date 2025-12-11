@@ -12,7 +12,7 @@ import (
 type ReplyRepo interface {
 	CreateReply(reply *model.Reply) error
 	FindReplyByID(replyID int64) (model.Reply, error)
-	FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error)
+	FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, int64, error)
 	UpdateColumn(replyID int64, column string, value any) (bool, error)
 	UpdateReply(reply *model.Reply) (bool, error)
 	DeleteReply(replyID int64) error
@@ -46,11 +46,16 @@ func (r *replyRepo) FindReplyByID(replyID int64) (model.Reply, error) {
 }
 
 // pg根据postID,offset,limit查询多个回帖
-func (r *replyRepo) FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error) {
+func (r *replyRepo) FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, int64, error) {
 	var results []model.Reply
+	var total int64
 	// 确保被认证的答案置顶
-	err := r.pg.Where("post_id = ?", postID).Offset(offset).Limit(limit).Order("status DESC").Find(&results).Error
-	return results, err
+	err := r.pg.Model(&model.Reply{}).Where("post_id = ?", postID).Count(&total).Error
+	if err != nil {
+		return results, 0, err
+	}
+	err = r.pg.Where("post_id = ?", postID).Offset(offset).Limit(limit).Order("status DESC").Find(&results).Error
+	return results, total, err
 }
 
 // pg更新一列

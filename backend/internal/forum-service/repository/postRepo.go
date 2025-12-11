@@ -23,7 +23,7 @@ type PostRepo interface {
 	CreatePostStar(pl *model.PostStar) error
 	DeletePostStar(userID, postID int64) error
 	HasPostStar(userID, postID int64) (bool, error)
-	FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, error)
+	FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, int64, error)
 	// redis
 	IncreasePostStat(ctx context.Context, postID int64, attr string) error
 	DecreasePostStat(ctx context.Context, postID int64, attr string) error
@@ -176,16 +176,21 @@ func (r *postRepo) HasPostStar(userID, postID int64) (bool, error) {
 }
 
 // 查询用户收藏的帖子（分页，按收藏时间倒序）
-func (r *postRepo) FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, error) {
+func (r *postRepo) FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, int64, error) {
 	var results []model.Post
-	err := r.pg.Table("post_stars").
+	var count int64
+	err := r.pg.Model(&model.PostStar{}).Where("user_id = ?", userID).Count(&count).Error
+	if err != nil {
+		return results, 0, err
+	}
+	err = r.pg.Table("post_stars").
 		Select("posts.*").
 		Joins("JOIN posts ON posts.id = post_stars.post_id").
 		Where("post_stars.user_id = ?", userID).
 		Order("post_stars.created_at DESC").
 		Offset(offset).Limit(limit).
 		Find(&results).Error
-	return results, err
+	return results, count, err
 }
 
 // redis增加{attr}次数

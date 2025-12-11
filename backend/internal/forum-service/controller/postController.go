@@ -74,15 +74,16 @@ func (pc *PostController) GetPostData(c *gin.Context) {
 // 批量获取帖子信息
 func (pc *PostController) GetManyPostData(c *gin.Context) {
 	// 获取偏移量
-	var offsetStr, limitStr, orderStr = c.Query("offset"), c.Query("limit"), c.Query("order")
-	offset, _ := strconv.Atoi(offsetStr) // 默认取0
+	var pageStr, limitStr, orderStr = c.Query("page"), c.Query("page_size"), c.Query("order")
+	page, _ := strconv.Atoi(pageStr)
 	limit, _ := strconv.Atoi(limitStr)
 	order, _ := strconv.Atoi(orderStr) // 默认取0,推荐排序
+	page = max(page, 1)                // 从1开始
 	if limit == 0 {
 		limit = 20 // 默认取20条
 	}
 	var ctx = c.Request.Context()
-	multiData, syserr := pc.postServ.GetManyPosts(ctx, offset, limit, model.OrderBy(order))
+	multiData, syserr := pc.postServ.GetManyPosts(ctx, page, limit, model.OrderBy(order))
 	switch syserr {
 	case syserror.NetworkError:
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
@@ -91,7 +92,10 @@ func (pc *PostController) GetManyPostData(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError, "data": nil})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": multiData})
+	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": multiData, "pagination": gin.H{
+		"page":      page,
+		"page_size": limit,
+	}})
 
 }
 
@@ -292,14 +296,15 @@ func (pc *PostController) GetPostStarStatus(c *gin.Context) {
 
 // 查询当前用户收藏的帖子（分页）
 func (pc *PostController) GetUserStarredPosts(c *gin.Context) {
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	limit, _ := strconv.Atoi(c.Query("limit"))
+	page, _ := strconv.Atoi(c.Query("page"))
+	limit, _ := strconv.Atoi(c.Query("page_size"))
+	page = max(page, 1) // 从1开始
 	if limit == 0 {
 		limit = 20
 	}
 	ctx := c.Request.Context()
 	userID := c.GetInt64("userID")
-	posts, syserr := pc.postServ.GetUserStarredPosts(ctx, userID, offset, limit)
+	posts, total, syserr := pc.postServ.GetUserStarredPosts(ctx, userID, page, limit)
 	switch syserr {
 	case syserror.NetworkError:
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError})
@@ -308,5 +313,9 @@ func (pc *PostController) GetUserStarredPosts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": posts})
+	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": posts, "pagination": gin.H{
+		"page":      page,
+		"page_size": limit,
+		"total":     total,
+	}})
 }

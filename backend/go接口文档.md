@@ -259,10 +259,10 @@ Response:
 - 相对路径: /posts
 
 ```ts
-// offset: 偏移量
-// limit: 数量
+// page: 页码 (默认:1)
+// page_size: 每页帖子数(默认 20)
 // order: 排序方式 (0:推荐 1:最热 2:最新),默认值:0
-GET /api/v1/forum/posts?offset=0&limit=10&order=0  
+GET /api/v1/forum/posts?page=1&page_size=20&order=0  
 
 // 此data字段返回一个post列表,每个元素的内容与2.2.2的data字段一致
 Response:
@@ -294,6 +294,10 @@ Response:
       },
         ...
     ],
+    "pagination":{   // COUNT(*) 非常耗时,不返回total帖子总数
+        "page":int,
+        "page_size":int    
+    },
     "message": string
 }
 ```
@@ -443,9 +447,9 @@ Response:
 - 相对路径: /posts/starred
 
 ```ts
-// offset: 偏移量（默认 0）
-// limit: 数量（默认 20）
-GET /api/v1/forum/posts/starred?offset=0&limit=20
+// page: 页码（默认 1）
+// page_size: 每页帖子数(默认 20)
+GET /api/v1/forum/posts/starred?page=1&page_size=20
 
 Response:
 {
@@ -476,6 +480,11 @@ Response:
         },
         ...
     ],
+    "pagination":{
+        "page":int,
+        "page_size":int,
+        "total":int
+    },
     "message": string
 }
 ```
@@ -514,9 +523,9 @@ Response:
 - 相对路径: /posts/{postID}/replies
 
 ```ts
-// offset: 偏移量
-// limit: 数量
-GET /api/v1/forum/posts/{postID}/replies?offset=0&limit=10  
+// page: 页码
+// page_size: 每页帖子数
+GET /api/v1/forum/posts/{postID}/replies?page=1&page_size=20  
 
 Response:
 {
@@ -546,6 +555,11 @@ Response:
         },
         ...
     ],
+    "pagination":{
+        "page":int,
+        "page_size":int,
+        "total":int,
+    },
     "message": string
 }
 ```
@@ -614,7 +628,7 @@ Request:
     "query":"test2",
     "tags":[],
     "page":1,   // 页码,从1开始
-    "page_size":10, // 每页帖子数
+    "page_size":20, // 每页帖子数
     "sort":1    // 1:默认排序 2:热度高 3:新发布 4:浏览多 5:评论多
 }
 
@@ -647,6 +661,10 @@ Response:
         }
     ],
     "message": string,
-    "total": int // 整个数据库里符合条件的帖子总数
+    "pagination":{
+        "page": int,
+        "page_size": int,
+        "total": int,
+    },
 }
 ```

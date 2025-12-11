@@ -82,14 +82,15 @@ func (rc *ReplyController) BatchGetReply(c *gin.Context) {
 		return
 	}
 	// 获取偏移量
-	var offsetStr, limitStr = c.Query("offset"), c.Query("limit")
-	offset, _ := strconv.Atoi(offsetStr) // 默认取0
+	var pageStr, limitStr = c.Query("page"), c.Query("page_size")
+	page, _ := strconv.Atoi(pageStr)
 	limit, _ := strconv.Atoi(limitStr)
+	page = max(page, 1) // 从1开始
 	if limit == 0 {
 		limit = 20 // 默认取20条
 	}
 	var ctx = c.Request.Context()
-	multiData, syserr := rc.replyServ.GetManyReplies(ctx, postID, offset, limit)
+	multiData, total, syserr := rc.replyServ.GetManyReplies(ctx, postID, page, limit)
 	switch syserr {
 	case syserror.NetworkError:
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
@@ -101,7 +102,11 @@ func (rc *ReplyController) BatchGetReply(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"message": "找不到指定帖子的回帖", "code": http.StatusNotFound, "data": nil})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": multiData})
+	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": multiData, "pagination": gin.H{
+		"page":      page,
+		"page_size": limit,
+		"total":     total,
+	}})
 }
 
 // 更新回帖
