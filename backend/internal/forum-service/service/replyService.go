@@ -24,13 +24,12 @@ import (
 
 type ReplyService interface {
 	CreateNewReply(ctx context.Context, userID int64, req request.ReplyCreate) (int64, syserror.Error)
-	GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
-	GetManyReplies(ctx context.Context, replyID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error)
+	GetOneReply(ctx context.Context, replyID, userID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
+	GetManyReplies(ctx context.Context, postID, userID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error)
 	UpdateOneReply(ctx context.Context, userID int64, replyID int64, req request.ReplyUpdate) syserror.Error
 	DeleteOneReply(ctx context.Context, replyID, userID int64, role int) syserror.Error
 	LikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error
 	CancelLikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error
-	HasLikedReply(ctx context.Context, replyID, userID int64) (bool, syserror.Error)
 }
 
 type replyService struct {
@@ -139,9 +138,9 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 }
 
 // 获取一条回帖
-func (s *replyService) GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
+func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
 	// 查询回帖信息
-	reply, err := s.replyRepo.FindReplyByID(replyID)
+	reply, err := s.replyRepo.FindReplyDetailByID(replyID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, syserror.NotFoundError
@@ -183,17 +182,18 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID int64) (*respons
 	}
 	// 聚合返回查询结果
 	replyData := &response.ReplyData{
-		Reply: reply,
+		Reply: reply.Reply,
+		Liked: reply.Liked,
 	}
 
 	return userInfo, replyData, syserror.NoError
 }
 
 // 获取分页帖子
-func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error) {
+func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error) {
 	// 查询回帖信息
 	offset := (page - 1) * limit // 计算偏移量
-	replies, total, err := s.replyRepo.FindRepliesByPostID(replyID, offset, limit)
+	replies, total, err := s.replyRepo.FindReplyDetailsByPostID(postID, userID, offset, limit)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, 0, syserror.NotFoundError
@@ -243,7 +243,8 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, page, 
 			Role:      int(user.Role),
 			AvatarUrl: user.AvatarUrl,
 		}
-		replyDatas[i].ReplyData.Reply = replies[i]
+		replyDatas[i].ReplyData.Reply = replies[i].Reply
+		replyDatas[i].ReplyData.Liked = replies[i].Liked
 	}
 	return replyDatas, total, syserror.NoError
 }
@@ -251,7 +252,7 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, page, 
 // 更新一条回帖
 func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID int64, req request.ReplyUpdate) syserror.Error {
 	// 查询该条回帖
-	reply, err := s.replyRepo.FindReplyByID(replyID)
+	reply, err := s.replyRepo.FindReplyDetailByID(replyID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -292,7 +293,7 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 	}
 
 	// 保存回帖信息
-	_, err = s.replyRepo.UpdateReply(&reply)
+	_, err = s.replyRepo.UpdateReply(&reply.Reply)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -322,7 +323,7 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 // 删除一条回帖
 func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64, role int) syserror.Error {
 	// 查询回帖信息
-	reply, err := s.replyRepo.FindReplyByID(replyID)
+	reply, err := s.replyRepo.FindReplyDetailByID(replyID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -431,14 +432,4 @@ func (s *replyService) CancelLikeOneReply(ctx context.Context, replyID, userID i
 		return syserror.InternalError
 	}
 	return syserror.NoError
-}
-
-// 查询用户是否点赞过指定回复
-func (s *replyService) HasLikedReply(ctx context.Context, replyID, userID int64) (bool, syserror.Error) {
-	liked, err := s.replyRepo.HasReplyLike(userID, replyID)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return false, syserror.InternalError
-	}
-	return liked, syserror.NoError
 }

@@ -6,6 +6,7 @@ import (
 
 type ReplyData struct {
 	model.Reply
+	Liked bool `json:"liked"`
 }
 
 type MultiReplyData struct {

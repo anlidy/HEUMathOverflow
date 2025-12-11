@@ -48,12 +48,13 @@ func (pc *PostController) CreateNewPost(c *gin.Context) {
 func (pc *PostController) GetPostData(c *gin.Context) {
 	var ctx = c.Request.Context()
 	var postIDStr = c.Param("postID")
+	var userID = c.GetInt64("userID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest, "data": nil})
 		return
 	}
-	userInfo, postData, syserr := pc.postServ.GetOnePost(ctx, postID)
+	userInfo, postData, syserr := pc.postServ.GetOnePost(ctx, postID, userID)
 	switch syserr {
 	case syserror.NetworkError:
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
@@ -210,24 +211,6 @@ func (pc *PostController) CancelLikeOnePost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "取消点赞成功", "code": http.StatusOK})
 }
 
-// 查询当前用户是否点赞过帖子
-func (pc *PostController) GetPostLikeStatus(c *gin.Context) {
-	postIDStr := c.Param("postID")
-	postID, err := strconv.ParseInt(postIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
-		return
-	}
-	ctx := c.Request.Context()
-	userID := c.GetInt64("userID")
-	liked, syserr := pc.postServ.HasLikedPost(ctx, postID, userID)
-	if syserr == syserror.InternalError {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "查询失败", "code": http.StatusInternalServerError})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": gin.H{"liked": liked}})
-}
-
 // / 收藏接口
 // 收藏帖子
 func (pc *PostController) StarOnePost(c *gin.Context) {
@@ -274,24 +257,6 @@ func (pc *PostController) CancelStarOnePost(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "取消收藏成功", "code": http.StatusOK})
-}
-
-// 查询当前用户是否收藏过帖子
-func (pc *PostController) GetPostStarStatus(c *gin.Context) {
-	postIDStr := c.Param("postID")
-	postID, err := strconv.ParseInt(postIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
-		return
-	}
-	ctx := c.Request.Context()
-	userID := c.GetInt64("userID")
-	starred, syserr := pc.postServ.HasStarredPost(ctx, postID, userID)
-	if syserr == syserror.InternalError {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "查询失败", "code": http.StatusInternalServerError})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": gin.H{"starred": starred}})
 }
 
 // 查询当前用户收藏的帖子（分页）

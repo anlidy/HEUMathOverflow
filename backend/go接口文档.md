@@ -96,7 +96,7 @@ Response:
 可直接内嵌链接到网页中, 浏览器进行请求
 
 ```ts
-GET /api/v1/user/avatar/{filename}	// 请求链接即为avatar_url
+GET /api/v1/user/avatar/{filename} // 请求链接即为avatar_url
 
 Response:
 Content-Type: image/png  // 允许jpg,jpeg,png,bmp格式
@@ -116,7 +116,7 @@ Content-Type: application/json
 Request:
 {
   "username": string,
-  ...	// 后续可添加字段
+  ... // 后续可添加字段
 }
   
 Response:
@@ -180,7 +180,7 @@ Response:
 - 请求方法: GET
 
 ```ts
-GET /api/v1/forum/file/{filename}	 // 请求链接即为image_url
+GET /api/v1/forum/file/{filename}  // 请求链接即为image_url
 
 Response:
 Content-Type: image/png  // 允许（正则式） jpg|jpeg|png|bmp|mp3|docx?|pptx?|xlsx?|pdf|zip|rar

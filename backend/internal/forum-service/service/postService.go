@@ -27,16 +27,14 @@ import (
 
 type PostService interface {
 	CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error)
-	GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
+	GetOnePost(ctx context.Context, postID, userID int64) (*response.UserInfo, *response.PostData, syserror.Error)
 	GetManyPosts(ctx context.Context, page, limit int, order model.OrderBy) ([]response.MultiPostData, syserror.Error)
 	UpdateOnePost(ctx context.Context, userID int64, postID int64, req request.PostUpdate) syserror.Error
 	DeleteOnePost(ctx context.Context, postID, userID int64, role int) syserror.Error
 	LikeOnePost(ctx context.Context, postID, userID int64) syserror.Error
 	CancelLikeOnePost(ctx context.Context, postID, userID int64) syserror.Error
-	HasLikedPost(ctx context.Context, postID, userID int64) (bool, syserror.Error)
 	StarOnePost(ctx context.Context, postID, userID int64) syserror.Error
 	CancelStarOnePost(ctx context.Context, postID, userID int64) syserror.Error
-	HasStarredPost(ctx context.Context, postID, userID int64) (bool, syserror.Error)
 	GetUserStarredPosts(ctx context.Context, userID int64, page, limit int) ([]response.MultiPostData, int64, syserror.Error)
 }
 
@@ -170,9 +168,9 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 }
 
 // 获取一条帖子
-func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
+func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
 	// 查询帖子信息
-	post, err := s.postRepo.FindPostByID(postID)
+	post, err := s.postRepo.FindPostDetail(postID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, syserror.NotFoundError
@@ -218,7 +216,9 @@ func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.U
 
 	// 聚合返回查询结果
 	postData := &response.PostData{
-		Post: post,
+		Post:    post.Post,
+		Liked:   post.Liked,
+		Starred: post.Starred,
 	}
 
 	// 后台完成同步
@@ -291,7 +291,7 @@ func (s *postService) GetManyPosts(ctx context.Context, page, limit int, order m
 // 更新一条帖子
 func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID int64, req request.PostUpdate) syserror.Error {
 	// 查询该条帖子
-	post, err := s.postRepo.FindPostByID(postID)
+	post, err := s.postRepo.FindPostDetail(postID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -329,7 +329,7 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 	}
 
 	// 保存帖子信息
-	_, err = s.postRepo.UpdatePost(&post)
+	_, err = s.postRepo.UpdatePost(&post.Post)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -374,7 +374,7 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 // 删除一条帖子
 func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, role int) syserror.Error {
 	// 查询该条帖子
-	post, err := s.postRepo.FindPostByID(postID)
+	post, err := s.postRepo.FindPostDetail(postID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -502,16 +502,6 @@ func (s *postService) CancelLikeOnePost(ctx context.Context, postID, userID int6
 	return syserror.NoError
 }
 
-// 查询用户是否点赞过指定帖子
-func (s *postService) HasLikedPost(ctx context.Context, postID, userID int64) (bool, syserror.Error) {
-	liked, err := s.postRepo.HasPostLike(userID, postID)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return false, syserror.InternalError
-	}
-	return liked, syserror.NoError
-}
-
 // / 收藏接口
 // 收藏帖子
 func (s *postService) StarOnePost(ctx context.Context, postID, userID int64) syserror.Error {
@@ -561,16 +551,6 @@ func (s *postService) CancelStarOnePost(ctx context.Context, postID, userID int6
 		}
 	}()
 	return syserror.NoError
-}
-
-// 查询用户是否收藏过指定帖子
-func (s *postService) HasStarredPost(ctx context.Context, postID, userID int64) (bool, syserror.Error) {
-	starred, err := s.postRepo.HasPostStar(userID, postID)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return false, syserror.InternalError
-	}
-	return starred, syserror.NoError
 }
 
 // 查询用户收藏的帖子（分页）

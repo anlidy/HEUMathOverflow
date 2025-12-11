@@ -53,7 +53,8 @@ func (rc *ReplyController) GetOneReply(c *gin.Context) {
 		return
 	}
 	var ctx = c.Request.Context()
-	userInfo, replyData, syserr := rc.replyServ.GetOneReply(ctx, replyID)
+	var userID = c.GetInt64("userID")
+	userInfo, replyData, syserr := rc.replyServ.GetOneReply(ctx, replyID, userID)
 	switch syserr {
 	case syserror.NetworkError:
 		log.Printf("[%s] gRPC网络异常: %v\n", rc.name, err)
@@ -77,6 +78,7 @@ func (rc *ReplyController) GetOneReply(c *gin.Context) {
 func (rc *ReplyController) BatchGetReply(c *gin.Context) {
 	var replyIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(replyIDStr, 10, 64)
+	var userID = c.GetInt64("userID")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "获取失败,无效的帖子id", "code": http.StatusBadRequest, "data": nil})
 		return
@@ -90,7 +92,7 @@ func (rc *ReplyController) BatchGetReply(c *gin.Context) {
 		limit = 20 // 默认取20条
 	}
 	var ctx = c.Request.Context()
-	multiData, total, syserr := rc.replyServ.GetManyReplies(ctx, postID, page, limit)
+	multiData, total, syserr := rc.replyServ.GetManyReplies(ctx, postID, userID, page, limit)
 	switch syserr {
 	case syserror.NetworkError:
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
@@ -219,22 +221,4 @@ func (pc *ReplyController) CancelLikeOneReply(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "取消点赞成功", "code": http.StatusOK})
-}
-
-// 查询当前用户是否点赞过回复
-func (pc *ReplyController) GetReplyLikeStatus(c *gin.Context) {
-	replyIDStr := c.Param("replyID")
-	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest})
-		return
-	}
-	ctx := c.Request.Context()
-	userID := c.GetInt64("userID")
-	liked, syserr := pc.replyServ.HasLikedReply(ctx, replyID, userID)
-	if syserr == syserror.InternalError {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "查询失败", "code": http.StatusInternalServerError})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": gin.H{"liked": liked}})
 }

@@ -11,7 +11,8 @@ import (
 
 type PostRepo interface {
 	CreatePost(post *model.Post) error
-	FindPostByID(postID int64) (model.Post, error)
+	// FindPostByID(postID int64) (model.Post, error)
+	FindPostDetail(postID, userID int64) (model.PostDetail, error)
 	FindManyPosts(offset, limit int, order model.OrderBy) ([]model.Post, error)
 	FindPostMapByIDs(postIDs []int64) (map[int64]model.Post, error)
 	UpdateColumn(postID int64, column string, value any) (bool, error)
@@ -19,10 +20,8 @@ type PostRepo interface {
 	DeletePost(postID int64) error
 	CreatePostLike(pl *model.PostLike) error
 	DeletePostLike(userID, postID int64) error
-	HasPostLike(userID, postID int64) (bool, error)
 	CreatePostStar(pl *model.PostStar) error
 	DeletePostStar(userID, postID int64) error
-	HasPostStar(userID, postID int64) (bool, error)
 	FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, int64, error)
 	// redis
 	IncreasePostStat(ctx context.Context, postID int64, attr string) error
@@ -43,10 +42,28 @@ func (r *postRepo) CreatePost(post *model.Post) error {
 	return r.pg.Model(&model.Post{}).Create(post).Error
 }
 
-// 根据postID查询帖子
-func (r *postRepo) FindPostByID(postID int64) (model.Post, error) {
-	var result model.Post
-	err := r.pg.Model(&model.Post{}).Where("id = ?", postID).First(&result).Error
+// // 根据postID查询帖子
+// func (r *postRepo) FindPostByID(postID int64) (model.Post, error) {
+// 	var result model.Post
+// 	err := r.pg.Model(&model.Post{}).Where("id = ?", postID).First(&result).Error
+// 	return result, err
+// }
+
+// 查询帖子数据及当前用户是否like&star
+func (r *postRepo) FindPostDetail(postID, userID int64) (model.PostDetail, error) {
+	var result model.PostDetail
+
+	err := r.pg.Raw(`
+        SELECT 
+            p.*,
+            EXISTS(SELECT 1 FROM post_likes pl 
+                   WHERE pl.post_id = p.id AND pl.user_id = ?) AS liked,
+            EXISTS(SELECT 1 FROM post_stars ps 
+                   WHERE ps.post_id = p.id AND ps.user_id = ?) AS starred
+        FROM posts p
+        WHERE p.id = ?
+    `, userID, userID, postID).Scan(&result).Error
+
 	return result, err
 }
 
@@ -137,16 +154,6 @@ func (r *postRepo) DeletePostLike(userID, postID int64) error {
 	return nil
 }
 
-// 查询点赞记录是否存在
-func (r *postRepo) HasPostLike(userID, postID int64) (bool, error) {
-	var count int64
-	err := r.pg.Model(&model.PostLike{}).Where("user_id = ? AND post_id = ?", userID, postID).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
 // / 收藏接口
 // 创建收藏记录
 func (r *postRepo) CreatePostStar(pl *model.PostStar) error {
@@ -163,16 +170,6 @@ func (r *postRepo) DeletePostStar(userID, postID int64) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
-}
-
-// 查询收藏记录是否存在
-func (r *postRepo) HasPostStar(userID, postID int64) (bool, error) {
-	var count int64
-	err := r.pg.Model(&model.PostStar{}).Where("user_id = ? AND post_id = ?", userID, postID).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
 }
 
 // 查询用户收藏的帖子（分页，按收藏时间倒序）
