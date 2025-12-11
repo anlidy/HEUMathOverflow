@@ -230,6 +230,8 @@ Response:
         "post_data": {  // 帖子数据
             "post_id": string,
             "title": string,
+            "content": string,
+            "image_urls": string[],
             "tags": string[],
             "status": int,  // 1:未解决 2:已解决 3:已认证
             "views": int, // 浏览量
@@ -239,8 +241,8 @@ Response:
             "last_reply_at": string | null, // "2025-11-20T12:12:40.33807Z"
             "created_at": string,
             "updated_at": string,
-            "content": string,
-            "image_urls": string[]
+            "liked":bool, // 当前用户是否点赞该贴
+            "starred":bool, // 当前用户是否收藏该贴
         },
         "user_info": {  // 发帖人的用户信息
             "user_id": string,
@@ -273,6 +275,8 @@ Response:
         "post_data": {  // 帖子数据
             "post_id": string,
             "title": string,
+            "content": string,
+            "image_urls": string[],
             "tags": string[],
             "status": int,  // 1:未解决 2:已解决 3:已认证
             "views": int, // 浏览量
@@ -282,8 +286,7 @@ Response:
             "last_reply_at": string | null, // "2025-11-20T12:12:40.33807Z"
             "created_at": string,
             "updated_at": string,
-            "content": string,
-            "image_urls": string[]
+            // 不显示状态,进入详情页再单独查询一次帖子数据
         },
         "user_info": {  // 发帖人的用户信息
             "user_id": string,
@@ -374,25 +377,7 @@ Response:
 }
 ```
 
-#### 2.2.8 查询用户是否点赞了帖子
-
-- 请求方法: GET
-- 相对路径: /posts/like/{post_id}
-
-```ts
-GET /api/v1/forum/posts/like/{post_id}
-
-Response:
-{
-    "code": int,
-    "message": string,
-    "data": {
-        "liked": bool
-    }
-}
-```
-
-#### 2.2.9 收藏帖子
+#### 2.2.8 收藏帖子
 
 - 请求方法: POST
 - 相对路径: /posts/star/{post_id}
@@ -408,7 +393,7 @@ Response:
 }
 ```
 
-#### 2.2.10 取消收藏
+#### 2.2.9 取消收藏
 
 - 请求方法: DELETE
 - 相对路径: /posts/star/{post_id}
@@ -423,25 +408,7 @@ Response:
 }
 ```
 
-#### 2.2.11 查询用户是否收藏了帖子
-
-- 请求方法: GET
-- 相对路径: /posts/star/{post_id}
-
-```ts
-GET /api/v1/forum/posts/star/{post_id}
-
-Response:
-{
-    "code": int,
-    "message": string,
-    "data": {
-        "starred": bool
-    }
-}
-```
-
-#### 2.2.12 查询当前用户收藏的帖子（分页）
+#### 2.2.10 查询当前用户收藏的帖子（分页）
 
 - 请求方法: GET
 - 相对路径: /posts/starred
@@ -459,6 +426,8 @@ Response:
             "post_data": {  // 帖子数据
                 "post_id": string,
                 "title": string,
+                "content": string,
+                "image_urls": string[],
                 "tags": string[],
                 "status": int,
                 "views": int,
@@ -468,8 +437,7 @@ Response:
                 "last_reply_at": string | null,
                 "created_at": string,
                 "updated_at": string,
-                "content": string,
-                "image_urls": string[]
+                // 进入详情页再查询一次帖子获取状态
             },
             "user_info": {  // 发帖人的用户信息
                 "user_id": string,
@@ -545,12 +513,13 @@ Response:
                 "status": int,  // 1:未精选 2:作者精选 3:教师精选
                 "likes": int,   // 点赞数
                 "certified_by": string | null,
-                "created_at": string,
                 "content": string,
+                "image_urls": string[],
                 "voice_url": string,
                 "voice_text": string,
-                "image_urls": string[],
-                "ai_answered": bool
+                "ai_answered": bool,
+                "created_at": string,
+                "liked":bool, // 当前用户是否点赞该回复
             }
         },
         ...
@@ -597,24 +566,6 @@ Response:
 }
 ```
 
-#### 2.3.5 查询用户是否点赞了回复
-
-- 请求方法: GET
-- 相对路径: /replies/like/{reply_id}
-
-```ts
-GET /api/v1/forum/replies/like/{reply_id}
-
-Response:
-{
-    "code": int,
-    "message": string,
-    "data": {
-        "liked": bool
-    }
-}
-```
-
 #### 2.4. 帖子搜索
 
 - 请求方法: POST
@@ -656,7 +607,7 @@ Response:
                 "replies": int,
                 "last_reply_at": string | null,
                 "created_at": string,
-                "updated_at": string
+                "updated_at": string,
             }
         }
     ],
