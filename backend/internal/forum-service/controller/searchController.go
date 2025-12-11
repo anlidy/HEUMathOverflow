@@ -26,6 +26,13 @@ func (sc *SearchController) SearchPosts(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "搜索参数不合法", "code": http.StatusBadRequest})
 		return
 	}
+	// 计算分页
+	page := max(req.Page, 1)
+	size := req.PageSize
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	req.From = (page - 1) * size
 
 	result, total, syserr := sc.searchServ.SearchPosts(ctx, req)
 	switch syserr {
@@ -36,5 +43,9 @@ func (sc *SearchController) SearchPosts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "搜索失败", "data": nil, "code": http.StatusInternalServerError})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "搜索完成", "data": result, "total": total, "code": http.StatusOK})
+	c.JSON(http.StatusOK, gin.H{"message": "搜索完成", "data": result, "pagination": gin.H{
+		"page":  req.Page,
+		"size":  size,
+		"total": total,
+	}, "code": http.StatusOK})
 }

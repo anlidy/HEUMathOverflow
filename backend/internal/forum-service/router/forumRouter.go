@@ -36,9 +36,7 @@ func SetupRouter(rdb *redis.Client,
 	authPost.DELETE("/:postID", postController.DeleteOnePost)          // 删除帖子
 	authPost.POST("/like/:postID", postController.LikeOnePost)         // 点赞帖子
 	authPost.DELETE("/like/:postID", postController.CancelLikeOnePost) // 取消点赞
-	authPost.GET("/like/:postID", postController.GetPostLikeStatus)    // 查询是否点赞
 	authPost.POST("/star/:postID", postController.StarOnePost)         // 收藏帖子
-	authPost.GET("/star/:postID", postController.GetPostStarStatus)    // 查询收藏状态
 	authPost.DELETE("/star/:postID", postController.CancelStarOnePost) // 取消收藏
 	authPost.GET("/starred", postController.GetUserStarredPosts)       // 查询当前用户的收藏列表
 
@@ -50,7 +48,6 @@ func SetupRouter(rdb *redis.Client,
 	authReply.DELETE("/:replyID", replyController.DeleteOneReply)          // 删除单条回复
 	authReply.POST("/like/:replyID", replyController.LikeOneReply)         // 点赞回复
 	authReply.DELETE("/like/:replyID", replyController.CancelLikeOneReply) // 取消点赞
-	authReply.GET("/like", replyController.GetReplyLikeStatus)             // 查询是否点赞
 
 	// 搜索
 	search := authForum.Group("/search")

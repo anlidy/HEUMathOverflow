@@ -8,4 +8,5 @@ type SearchRequest struct {
 	Page     int                  `json:"page"`      // 页码
 	PageSize int                  `json:"page_size"` // 每页大小
 	Sort     model.SearchSortType `json:"sort"`      // 排序字段
+	From     int
 }

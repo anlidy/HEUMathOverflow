@@ -67,3 +67,10 @@ type PostStat struct {
 	Stars   int64
 	Replies int64
 }
+
+// 存储post表及当前用户的like&star情况
+type PostDetail struct {
+	Post
+	Liked   bool
+	Starred bool
+}

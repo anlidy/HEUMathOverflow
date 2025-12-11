@@ -41,3 +41,9 @@ type ReplyLike struct {
 	CreatedAt time.Time
 	Reply     Reply `gorm:"foreignKey:ReplyID;references:ID;OnDelete:CASCADE;"`
 }
+
+// 存储reply数据及当前用户like状态
+type ReplyDetail struct {
+	Reply
+	Liked bool
+}

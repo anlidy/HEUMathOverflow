@@ -11,14 +11,13 @@ import (
 
 type ReplyRepo interface {
 	CreateReply(reply *model.Reply) error
-	FindReplyByID(replyID int64) (model.Reply, error)
-	FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error)
+	FindReplyDetailByID(replyID, userID int64) (model.ReplyDetail, error)
+	FindReplyDetailsByPostID(postID, userID int64, offset, limit int) ([]model.ReplyDetail, int64, error)
 	UpdateColumn(replyID int64, column string, value any) (bool, error)
 	UpdateReply(reply *model.Reply) (bool, error)
 	DeleteReply(replyID int64) error
 	CreateReplyLike(rl *model.ReplyLike) error
 	DeleteReplyLike(userID, replyID int64) error
-	HasReplyLike(userID, replyID int64) (bool, error)
 	// redis
 	IncreasePostReplies(ctx context.Context, postID int64) error
 	DecreasePostReplies(ctx context.Context, postID int64) error
@@ -39,18 +38,49 @@ func (r *replyRepo) CreateReply(reply *model.Reply) error {
 }
 
 // pg根据replyID查询回帖
-func (r *replyRepo) FindReplyByID(replyID int64) (model.Reply, error) {
-	var result model.Reply
-	err := r.pg.Where("id = ?", replyID).First(&result).Error
+func (r *replyRepo) FindReplyDetailByID(replyID, userID int64) (model.ReplyDetail, error) {
+	var result model.ReplyDetail
+	err := r.pg.Raw(`
+		SELECT 
+			r.*,
+			EXISTS (
+				SELECT 1 FROM reply_likes rl
+				WHERE rl.reply_id = r.id AND rl.user_id = ?
+			) AS liked
+		FROM replies r
+		WHERE r.id = ?
+	`, userID, replyID).Scan(&result).Error
 	return result, err
 }
 
-// pg根据postID,offset,limit查询多个回帖
-func (r *replyRepo) FindRepliesByPostID(postID int64, offset, limit int) ([]model.Reply, error) {
-	var results []model.Reply
-	// 确保被认证的答案置顶
-	err := r.pg.Where("post_id = ?", postID).Offset(offset).Limit(limit).Order("status DESC").Find(&results).Error
-	return results, err
+// 查询帖子的回帖数据及用户对这些回帖的点赞情况
+func (r *replyRepo) FindReplyDetailsByPostID(postID, userID int64, offset, limit int) ([]model.ReplyDetail, int64, error) {
+	var results []model.ReplyDetail
+	var total int64
+
+	// 总数
+	err := r.pg.Model(&model.Reply{}).
+		Where("post_id = ?", postID).
+		Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 查询回复 + 当前用户是否点赞
+	err = r.pg.Raw(`
+        SELECT 
+            r.*,
+            EXISTS (
+                SELECT 1 FROM reply_likes rl
+                WHERE rl.reply_id = r.id AND rl.user_id = ?
+            ) AS liked
+        FROM replies r
+        WHERE r.post_id = ?
+        ORDER BY r.status DESC
+        OFFSET ? LIMIT ?
+    `, userID, postID, offset, limit).Scan(&results).Error
+
+	return results, total, err
 }
 
 // pg更新一列
@@ -111,16 +141,6 @@ func (r *replyRepo) DeleteReplyLike(userID, replyID int64) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
-}
-
-// 查询点赞记录是否存在
-func (r *replyRepo) HasReplyLike(userID, replyID int64) (bool, error) {
-	var count int64
-	err := r.pg.Model(&model.ReplyLike{}).Where("user_id = ? AND reply_id = ?", userID, replyID).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
 }
 
 // redis增加 post replies 次数

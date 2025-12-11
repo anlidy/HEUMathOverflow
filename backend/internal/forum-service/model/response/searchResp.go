@@ -6,6 +6,6 @@ type PostMeta struct {
 	AuthorID int64 `json:"author_id"`
 }
 type SearchResponse struct {
-	Total     int
 	PostMetas []PostMeta
+	Total     int
 }

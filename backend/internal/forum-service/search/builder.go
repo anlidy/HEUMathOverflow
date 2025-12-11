@@ -7,14 +7,6 @@ import (
 
 // 构建 ES 查询 DSL
 func BuildQuery(req request.SearchRequest) map[string]any {
-	page := max(req.Page, 1)
-	size := req.PageSize
-	if size < 1 || size > 100 {
-		size = 20
-	}
-
-	from := (page - 1) * size
-
 	order := "desc" // 都采用降序
 	sortBy := model.GetSortString(req.Sort)
 
@@ -58,8 +50,8 @@ func BuildQuery(req request.SearchRequest) map[string]any {
 			},
 		},
 		"sort": sort,
-		"from": from,
-		"size": size,
+		"from": req.From,
+		"size": req.PageSize,
 	}
 
 	return body

@@ -13,6 +13,8 @@ type UserInfo struct {
 
 type PostData struct {
 	model.Post
+	Liked   bool `json:"liked"`
+	Starred bool `json:"starred"`
 }
 
 type MultiPostData struct {
