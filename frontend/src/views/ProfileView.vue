@@ -59,9 +59,7 @@ const rules: FormRules = {
 
 // 密码表单验证规则
 const passwordRules: FormRules = {
-    old_password: [
-        { required: true, message: '请输入当前密码', trigger: ['blur', 'input'] },
-    ],
+    old_password: [{ required: true, message: '请输入当前密码', trigger: ['blur', 'input'] }],
     new_password: [
         { required: true, message: '请输入新密码', trigger: ['blur', 'input'] },
         { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: ['blur', 'input'] },
@@ -97,7 +95,7 @@ const handleUpdateProfile = async (e: Event) => {
     e.preventDefault()
     try {
         await formRef.value?.validate()
-        
+
         // 如果没有变化，不提交
         if (formData.username === userInfo.value?.username) {
             showSuccess('信息未发生变化')
@@ -146,19 +144,19 @@ const handleAvatarChange = async (event: Event) => {
         avatarUploading.value = true
         const response = await userStore.uploadAvatar(file)
         console.log('头像上传响应:', response)
-        
+
         // 立即清除预览，让新头像显示
         avatarPreview.value = null
-        
+
         // 强制刷新头像（触发watch更新）
         avatarRefreshKey.value = Date.now()
-        
+
         // 等待store更新完成
-        await new Promise(resolve => setTimeout(resolve, 50))
-        
+        await new Promise((resolve) => setTimeout(resolve, 50))
+
         console.log('更新后的头像URL:', userInfo.value?.avatar_url)
         showSuccess('头像上传成功！')
-        
+
         // 清空文件输入
         if (avatarFileInput.value) {
             avatarFileInput.value.value = ''
@@ -201,13 +199,13 @@ const handleChangePassword = async () => {
     try {
         await passwordFormRef.value?.validate()
         passwordLoading.value = true
-        
+
+        // confirm_new_password 仅前端校验，不发送到后端
         await userStore.changeUserPassword({
             old_password: passwordFormData.old_password,
             new_password: passwordFormData.new_password,
-            confirm_new_password: passwordFormData.confirm_new_password,
         })
-        
+
         showSuccess('密码修改成功！')
         closePasswordDialog()
     } catch (error) {
@@ -233,18 +231,14 @@ const formatDate = (date: string | Date | undefined) => {
 }
 
 // 获取角色显示文本
-const getRoleText = (role: string | undefined) => {
-    const roleMap: Record<string, string> = {
-        student: '学生',
-        '1': '学生',
-        assistant: '助教',
-        '2': '助教',
-        teacher: '教师',
-        '3': '教师',
-        admin: '管理员',
-        '4': '管理员',
+const getRoleText = (role: number | undefined) => {
+    const roleMap: Record<number, string> = {
+        1: '学生',
+        2: '助教',
+        3: '教师',
+        4: '管理员',
     }
-    return roleMap[role || ''] || '未知'
+    return roleMap[role || 0] || '未知'
 }
 
 // 头像刷新键，用于强制刷新图片（避免缓存）
@@ -265,11 +259,14 @@ const displayAvatar = computed(() => {
 })
 
 // 监听userInfo的avatar_url变化，强制刷新头像
-watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
-    if (newUrl && newUrl !== oldUrl) {
-        avatarRefreshKey.value = Date.now()
-    }
-})
+watch(
+    () => userInfo.value?.avatar_url,
+    (newUrl, oldUrl) => {
+        if (newUrl && newUrl !== oldUrl) {
+            avatarRefreshKey.value = Date.now()
+        }
+    },
+)
 </script>
 
 <template>
@@ -285,7 +282,7 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
             <nav class="-mb-px flex space-x-8">
                 <button
                     :class="[
-                        'border-b-2 py-4 px-1 text-sm font-medium transition-colors',
+                        'border-b-2 px-1 py-4 text-sm font-medium transition-colors',
                         activeTab === 'profile'
                             ? 'border-blue-500 text-blue-600'
                             : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
@@ -298,7 +295,7 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
                 </button>
                 <button
                     :class="[
-                        'border-b-2 py-4 px-1 text-sm font-medium transition-colors',
+                        'border-b-2 px-1 py-4 text-sm font-medium transition-colors',
                         activeTab === 'account'
                             ? 'border-blue-500 text-blue-600'
                             : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
@@ -318,7 +315,9 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
             <div class="rounded-lg border border-gray-200 bg-white p-6">
                 <h2 class="mb-4 text-lg font-medium text-gray-900">头像</h2>
                 <div class="flex items-center gap-6">
-                    <div @click.stop="openAvatarSelector" class="h-20 w-20 overflow-hidden cursor-pointer rounded-full border-2 border-gray-200">
+                    <div
+                        @click.stop="openAvatarSelector"
+                        class="h-20 w-20 cursor-pointer overflow-hidden rounded-full border-2 border-gray-200">
                         <img :src="displayAvatar" class="h-full w-full object-cover" alt="Avatar" />
                     </div>
                     <div class="flex-1">
@@ -340,7 +339,12 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
             <!-- 基本信息 -->
             <div class="rounded-lg border border-gray-200 bg-white p-6">
                 <h2 class="mb-4 text-lg font-medium text-gray-900">基本信息</h2>
-                <n-form ref="formRef" :model="formData" :rules="rules" size="large" @submit.prevent="handleUpdateProfile">
+                <n-form
+                    ref="formRef"
+                    :model="formData"
+                    :rules="rules"
+                    size="large"
+                    @submit.prevent="handleUpdateProfile">
                     <div class="space-y-4">
                         <n-form-item path="username" label="用户名">
                             <n-input
@@ -352,15 +356,16 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
                                 </template>
                             </n-input>
                         </n-form-item>
-                        
+
+                        <!-- 邮箱字段：后端暂未返回，显示为"暂未提供" -->
                         <n-form-item label="邮箱">
-                            <n-input :value="userInfo?.email" disabled>
+                            <n-input value="暂未提供" disabled>
                                 <template #prefix>
                                     <n-icon :component="MailOutline" />
                                 </template>
                             </n-input>
                             <template #feedback>
-                                <span class="text-xs text-gray-400">邮箱不可修改</span>
+                                <span class="text-xs text-gray-400">邮箱信息暂不支持显示</span>
                             </template>
                         </n-form-item>
 
@@ -392,16 +397,17 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
                             <div class="mt-1 text-sm text-gray-500">{{ getRoleText(userInfo?.role) }}</div>
                         </div>
                     </div>
+                    <!-- 注册时间和最后登录：后端暂未返回这些字段 -->
                     <div class="flex items-center justify-between border-t border-gray-100 py-3">
                         <div>
                             <div class="text-sm font-medium text-gray-900">注册时间</div>
-                            <div class="mt-1 text-sm text-gray-500">{{ formatDate(userInfo?.created_at) }}</div>
+                            <div class="mt-1 text-sm text-gray-500">暂未提供</div>
                         </div>
                     </div>
                     <div class="flex items-center justify-between border-t border-gray-100 py-3">
                         <div>
                             <div class="text-sm font-medium text-gray-900">最后登录</div>
-                            <div class="mt-1 text-sm text-gray-500">{{ formatDate(userInfo?.last_login) }}</div>
+                            <div class="mt-1 text-sm text-gray-500">暂未提供</div>
                         </div>
                     </div>
                 </div>
@@ -471,9 +477,7 @@ watch(() => userInfo.value?.avatar_url, (newUrl, oldUrl) => {
         <template #action>
             <div class="flex justify-end gap-2">
                 <n-button @click="closePasswordDialog">取消</n-button>
-                <n-button type="primary" :loading="passwordLoading" @click="handleChangePassword">
-                    确认修改
-                </n-button>
+                <n-button type="primary" :loading="passwordLoading" @click="handleChangePassword">确认修改</n-button>
             </div>
         </template>
     </n-modal>
