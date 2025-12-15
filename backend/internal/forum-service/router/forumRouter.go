@@ -5,6 +5,7 @@ import (
 	"MathOverflow/internal/forum-service/controller"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,7 +16,16 @@ func SetupRouter(rdb *redis.Client,
 	searchController controller.SearchController) *gin.Engine {
 
 	r := gin.Default()
-	r.Use(middleware.CorsMiddleware([]string{"http://localhost:3000", "https://math-overflow.edu"}))
+	r.Use(
+		middleware.RequestIDMiddleware(),
+		middleware.MetricsMiddleware("forum-service"),
+		middleware.LoggingMiddleware(),
+		middleware.CorsMiddleware([]string{"http://localhost:3000", "https://math-overflow.edu"}),
+	)
+
+	// Prometheus metrics endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 	forum := v1.Group("/forum")

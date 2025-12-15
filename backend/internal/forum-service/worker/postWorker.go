@@ -3,10 +3,10 @@ package worker
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/event"
+	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/model"
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
@@ -61,7 +61,7 @@ func (w *PostWorker) getPostStat(ctx context.Context, key string) (*model.PostSt
 	}
 	if v, ok := m["replies"]; ok {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			pc.Stars = n
+			pc.Replies = n
 		}
 	}
 	return pc, nil
@@ -84,7 +84,7 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 		// 从redis读取对应key的增量
 		stat, err := w.getPostStat(ctx, key)
 		if err != nil {
-			log.Printf("[%s]%v\n", w.name, err)
+			utils.Logger().WithField("worker", w.name).WithField("key", key).WithError(err).Error("get post stat from redis failed")
 			continue
 		}
 		if stat == nil || stat.PostID == 0 || stat.Views == 0 && stat.Likes == 0 && stat.Stars == 0 && stat.Replies == 0 {
@@ -96,7 +96,7 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 			stat.Views, stat.Likes, stat.Stars, stat.Replies, stat.PostID,
 		).Error
 		if err != nil {
-			log.Printf("[%s]%v\n", w.name, err)
+			utils.Logger().WithField("worker", w.name).WithError(err).Error("write back post stat to postgres failed")
 			continue
 		}
 		// 发布PostStat事件
@@ -111,7 +111,7 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 
 		// 清除redis缓存
 		if err := w.DeletePostStat(ctx, key); err != nil {
-			log.Printf("[%s]%v\n", w.name, err)
+			utils.Logger().WithField("worker", w.name).WithField("key", key).WithError(err).Error("delete post stat from redis failed")
 			continue
 		}
 	}
@@ -122,14 +122,14 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 func (w *PostWorker) WriteBackPostWorker(ctx context.Context, interval time.Duration, count int64) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	log.Printf("[%s] started...\n", w.name)
+	utils.Logger().WithField("worker", w.name).WithField("interval", interval.String()).Info("post worker started")
 	var scanCursor uint64 = 0
 	for {
 		select {
 		case <-ticker.C:
-			w.WriteBackPost(ctx, scanCursor, count)
+			scanCursor = w.WriteBackPost(ctx, scanCursor, count)
 		case <-ctx.Done():
-			log.Printf("[%s] stopped.\n", w.name)
+			utils.Logger().WithField("worker", w.name).Info("post worker stopped")
 			return
 		}
 	}

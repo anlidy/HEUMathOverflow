@@ -2,8 +2,8 @@ package client
 
 import (
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/utils"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -35,11 +35,11 @@ func InitESClient(cfg config.Config) (*ESClient, error) {
 			}, nil
 		}
 
-		log.Printf("连接 ES 失败 (第 %d/%d 次): %v", i, maxRetries, err)
+		utils.Logger().WithField("retry", i).WithField("max_retries", maxRetries).WithError(err).Error("连接 ES 失败")
 
 		if i < maxRetries {
 			time.Sleep(retryInterval)
-			log.Println("正在重试连接 ES...")
+			utils.Logger().Info("正在重试连接 ES...")
 		}
 	}
 	return nil, fmt.Errorf("failed to connect ES after %d retries: %w", maxRetries, err)

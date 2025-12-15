@@ -3,6 +3,7 @@ package main
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/controller"
 	"MathOverflow/internal/forum-service/model"
 	"MathOverflow/internal/forum-service/repository"
@@ -11,7 +12,6 @@ import (
 	"MathOverflow/internal/forum-service/worker"
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,13 +21,15 @@ import (
 )
 
 func main() {
+	utils.InitLogger("forum-service")
+
 	dir, _ := os.Getwd()
-	fmt.Println("当前工作目录:", dir)
+	utils.Logger().WithField("working_dir", dir).Info("forum-service starting")
 	// 加载配置
 
 	cfg, err := config.LoadConfig("forum.yaml")
 	if err != nil {
-		panic(err)
+		utils.Logger().WithError(err).Fatal("failed to load forum.yaml")
 	}
 
 	// 初始化RabbitMQ
@@ -66,7 +68,7 @@ func main() {
 
 	es, err := client.InitESClient(cfg)
 	if err != nil {
-		log.Fatalf("init es failed: %v", err)
+		utils.Logger().WithError(err).Fatal("init es failed")
 	}
 
 	// 初始化服务
@@ -109,14 +111,14 @@ func main() {
 		go func() {
 			<-ctx.Done()
 			srv.Shutdown(context.Background())
-			log.Println("Forum Service Exited.")
+			utils.Logger().Info("Forum Service Exited.")
 		}()
-		log.Println("Forum Service is running...")
+		utils.Logger().Info("Forum Service is running...")
 		return srv.ListenAndServe()
 	})
 
 	if err := eg.Wait(); err != nil {
-		log.Println("Forum服务异常退出:", err)
+		utils.Logger().WithError(err).Error("Forum服务异常退出")
 	}
 
 }

@@ -3,10 +3,10 @@ package service
 import (
 	"MathOverflow/internal/common/config"
 	common "MathOverflow/internal/common/model"
+	"MathOverflow/internal/common/utils"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/repository"
 	"context"
-	"log"
 )
 
 type ForumService interface {
@@ -33,7 +33,7 @@ func (s *forumService) UploadFile(ctx context.Context, file common.File) (string
 	// 将文件存入minio
 	url, err := s.fileRepo.UploadFile(ctx, s.cfg.Minio.Bucket, file)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("upload file failed")
 		return "", syserror.InternalError
 	}
 	return url, syserror.NoError

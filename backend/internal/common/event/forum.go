@@ -2,8 +2,8 @@ package event
 
 import (
 	"MathOverflow/internal/common/client"
+	"MathOverflow/internal/common/utils"
 	"fmt"
-	"log"
 	"time"
 )
 
@@ -45,7 +45,7 @@ type ForumPostPayload struct {
 // 发布post事件
 func PublishPostEvent(mq *client.RabbitMQClient, t ForumEventType, payload ForumPostPayload) {
 	if mq == nil {
-		log.Println("mq is nil, cannot publish post event.")
+		utils.Logger().Warn("mq is nil, cannot publish post event")
 		return
 	}
 
@@ -57,12 +57,12 @@ func PublishPostEvent(mq *client.RabbitMQClient, t ForumEventType, payload Forum
 
 	// 计算分片
 	if mq.PostWorkerCount <= 0 {
-		log.Println("post_worker_count must >= 0")
+		utils.Logger().Warn("post_worker_count must >= 0")
 	}
 	shardID := payload.PostID % mq.PostWorkerCount
 	routeKey := fmt.Sprintf("%s.%d", t, shardID) // forum.post.created.1
 
 	if err := mq.PublishEvent(routeKey, evt); err != nil {
-		log.Printf("publish post event failed: %v\n", err)
+		utils.Logger().WithError(err).Error("publish post event failed")
 	}
 }

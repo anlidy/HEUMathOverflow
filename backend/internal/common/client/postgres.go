@@ -2,8 +2,8 @@ package client
 
 import (
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/utils"
 	"fmt"
-	"log"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -30,11 +30,11 @@ func InitPostgres(cfg config.PostgresConfig) (*gorm.DB, error) {
 			return db.Debug(), nil
 		}
 
-		log.Printf("连接 PostgreSQL 失败 (第 %d/%d 次): %v", i, maxRetries, err)
+		utils.Logger().WithField("retry", i).WithField("max_retries", maxRetries).WithError(err).Error("连接 PostgreSQL 失败")
 
 		if i < maxRetries {
 			time.Sleep(retryInterval)
-			log.Println("正在重试连接 PostgreSQL...")
+			utils.Logger().Info("正在重试连接 PostgreSQL...")
 		}
 	}
 
