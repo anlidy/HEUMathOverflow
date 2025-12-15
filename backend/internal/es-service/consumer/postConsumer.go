@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -32,11 +31,11 @@ func StartPostConsumer(ctx context.Context, mq *client.RabbitMQClient, es *clien
 		go StartWorker(ctx, mq, es, shardID, handleFunc)
 	}
 
-	log.Printf("[PostConsumer] %d shard workers started.\n", mq.PostWorkerCount)
+	utils.Logger().WithField("service", "es-service").WithField("shards", mq.PostWorkerCount).Info("[PostConsumer] shard workers started")
 
 	// 等待上游关闭
 	<-ctx.Done()
-	log.Println("[PostConsumer] context canceled, waiting workers to exit...")
+	utils.Logger().WithField("service", "es-service").Info("[PostConsumer] context canceled, waiting workers to exit...")
 	return nil
 }
 
@@ -68,10 +67,10 @@ func HandlePostEvent(ch *amqp.Channel, es *client.ESClient, msg amqp.Delivery) e
 	// 解析post事件结构
 	var evt event.ForumPostEvent
 	if err := json.Unmarshal(msg.Body, &evt); err != nil {
-		log.Printf("[es-service]: unmarshal event failed: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("unmarshal event failed")
 		return err
 	}
-	log.Println(evt)
+	utils.Logger().WithField("service", "es-service").WithField("event_type", evt.Type).Debug("received event")
 	// 提取文档
 	docID := strconv.FormatInt(evt.Payload.PostID, 10)
 
@@ -86,7 +85,7 @@ func HandlePostEvent(ch *amqp.Channel, es *client.ESClient, msg amqp.Delivery) e
 	case event.ForumPostStatUpdated:
 		return handlePostStatUpdated(es, docID, evt.Payload)
 	default:
-		log.Printf("[es-service]: unknown event type: %s\n", evt.Type)
+		utils.Logger().WithField("service", "es-service").WithField("event_type", evt.Type).Warn("unknown event type")
 		return nil // 忽略未知事件并 ack
 	}
 }
@@ -96,7 +95,7 @@ func handleCreatePost(es *client.ESClient, docID string, payload event.ForumPost
 	// 序列化 ES 文档
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[es-service]: marshal payload failed: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("marshal create payload failed")
 		return err
 	}
 
@@ -108,18 +107,18 @@ func handleCreatePost(es *client.ESClient, docID string, payload event.ForumPost
 		es.Client.Index.WithRefresh("false"), // 性能更好
 	)
 	if err != nil {
-		log.Printf("[es-service]: index post error: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("index post error")
 		return err
 	}
 	defer resp.Body.Close()
 
 	// 处理非成功状态码
 	if resp.IsError() {
-		log.Printf("[es-service]: index response error: [%s] %s\n", resp.Status(), resp.String())
+		utils.Logger().WithField("service", "es-service").WithField("status", resp.Status()).Error("index response error")
 		return fmt.Errorf("index error: %s", resp.Status())
 	}
 
-	log.Printf("[es-service]: create document id=%s\n", docID)
+	utils.Logger().WithField("service", "es-service").WithField("doc_id", docID).Info("create document")
 	return nil
 }
 
@@ -131,7 +130,7 @@ func handleUpdatePost(es *client.ESClient, docID string, payload event.ForumPost
 
 	body, err := json.Marshal(updateBody)
 	if err != nil {
-		log.Printf("[es-service]: marshal payload failed: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("marshal update payload failed")
 		return err
 	}
 
@@ -142,17 +141,17 @@ func handleUpdatePost(es *client.ESClient, docID string, payload event.ForumPost
 		es.Client.Update.WithRefresh("false"),
 	)
 	if err != nil {
-		log.Printf("[es-service]: Update post error: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("update post error")
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.IsError() {
-		log.Printf("[es-service]: Update response error: [%s] %s\n", resp.Status(), resp.String())
+		utils.Logger().WithField("service", "es-service").WithField("status", resp.Status()).Error("update response error")
 		return fmt.Errorf("update error: %s", resp.Status())
 	}
 
-	log.Printf("[es-service]: update document id=%s\n", docID)
+	utils.Logger().WithField("service", "es-service").WithField("doc_id", docID).Info("update document")
 	return nil
 }
 
@@ -164,18 +163,18 @@ func handleDeletePost(es *client.ESClient, docID string) error {
 		es.Client.Delete.WithRefresh("false"),
 	)
 	if err != nil {
-		log.Printf("[es-service]: delete error: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("delete error")
 		return err
 	}
 	defer resp.Body.Close()
 
 	// 允许 404（文档可能早已被删）
 	if resp.IsError() && resp.StatusCode != 404 {
-		log.Printf("[es-service]: delete response error: [%s] %s\n", resp.Status(), resp.String())
+		utils.Logger().WithField("service", "es-service").WithField("status", resp.Status()).Error("delete response error")
 		return fmt.Errorf("delete error: %s", resp.Status())
 	}
 
-	log.Printf("[es-service]: deleted document id=%s\n", docID)
+	utils.Logger().WithField("service", "es-service").WithField("doc_id", docID).Info("deleted document")
 	return nil
 }
 
@@ -204,7 +203,7 @@ func handlePostStatUpdated(es *client.ESClient, docID string, payload event.Foru
 	// 序列化 ES 文档
 	body, err := json.Marshal(updateBody)
 	if err != nil {
-		log.Printf("[es-service]: marshal payload failed: %v\n", err)
+		utils.Logger().WithField("service", "es-service").WithError(err).Error("marshal post stat payload failed")
 		return err
 	}
 

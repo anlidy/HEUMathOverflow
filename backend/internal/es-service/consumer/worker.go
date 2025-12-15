@@ -2,9 +2,9 @@ package consumer
 
 import (
 	"MathOverflow/internal/common/client"
+	"MathOverflow/internal/common/utils"
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -29,7 +29,7 @@ RECONNECT:
 	// 建立一个channel
 	ch, err := mq.Conn.Channel()
 	if err != nil {
-		log.Printf("[Shard %d] create channel failed: %v\n", shardID, err)
+		utils.Logger().WithField("service", "es-service").WithField("shard", shardID).WithError(err).Error("create channel failed")
 		time.Sleep(time.Second)
 		goto RECONNECT
 	}
@@ -51,26 +51,26 @@ RECONNECT:
 		nil,
 	)
 	if err != nil {
-		log.Printf("[Shard %d] consume failed: %v\n", shardID, err)
+		utils.Logger().WithField("service", "es-service").WithField("shard", shardID).WithError(err).Error("consume failed")
 		_ = ch.Close()
 		time.Sleep(time.Second)
 		goto RECONNECT
 	}
 	// 监听 channel 关闭
 	notify := ch.NotifyClose(make(chan *amqp.Error, 1))
-	log.Printf("[Shard %d] worker started, queue=%s, bindingKey=%s\n", shardID, queueName, bindingKey)
+	utils.Logger().WithField("service", "es-service").WithField("shard", shardID).WithField("queue", queueName).WithField("binding_key", bindingKey).Info("worker started")
 
 	// 持续监听事件
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[Shard %d] context done, closing channel...\n", shardID)
+			utils.Logger().WithField("service", "es-service").WithField("shard", shardID).Info("context done, closing channel")
 			_ = ch.Close()
 			return
 
 		case err := <-notify:
 			// channel 被动关闭（例如 unknown delivery tag、网络异常等）
-			log.Printf("[Shard %d] channel closed: %v, reconnecting...\n", shardID, err)
+			utils.Logger().WithField("service", "es-service").WithField("shard", shardID).WithError(err).Warn("channel closed, reconnecting")
 			_ = ch.Close()
 			time.Sleep(time.Second)
 			goto RECONNECT
@@ -78,7 +78,7 @@ RECONNECT:
 		case msg, ok := <-msgs:
 			if !ok {
 				// msgs 关闭了，一般是 channel 关闭了
-				log.Printf("[Shard %d] msgs channel closed, reconnecting...\n", shardID)
+				utils.Logger().WithField("service", "es-service").WithField("shard", shardID).Warn("msgs channel closed, reconnecting")
 				_ = ch.Close()
 				time.Sleep(time.Second)
 				goto RECONNECT
@@ -86,11 +86,17 @@ RECONNECT:
 
 			// 开始处理post事件
 			if err := handleFunc(ch, es, msg); err != nil {
-				log.Printf("[Shard %d] handle message error: %v, nack & requeue\n", shardID, err)
+				utils.Logger().
+					WithField("service", "es-service").
+					WithField("shard", shardID).
+					WithField("routing_key", msg.RoutingKey).
+					WithError(err).
+					Error("handle message error, send to dead-letter queue")
 				time.Sleep(time.Second)
-				_ = msg.Nack(false, true)
+				// 不再重回原队列，避免无限重试，由 RabbitMQ 投递到 DLQ
+				_ = msg.Nack(false, false)
 			} else {
-				log.Printf("[Shard %d] message handled ok, ack. deliveryTag=%d\n", shardID, msg.DeliveryTag)
+				utils.Logger().WithField("service", "es-service").WithField("shard", shardID).WithField("delivery_tag", msg.DeliveryTag).Info("message handled ok, ack")
 				_ = msg.Ack(false)
 			}
 		}

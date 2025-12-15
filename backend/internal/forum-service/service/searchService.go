@@ -3,6 +3,7 @@ package service
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/utils"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
 	"MathOverflow/internal/forum-service/model/response"
@@ -12,7 +13,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"sync"
 
 	"google.golang.org/grpc/codes"
@@ -64,10 +64,11 @@ func (s *searchService) getUserClient() (userpb.UserServiceClient, error) {
 }
 
 func (s *searchService) SearchPosts(ctx context.Context, req request.SearchRequest) ([]response.MultiPostData, int, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	body := search.BuildQuery(req) // 构建请求体
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
-		log.Printf("[%s]encode es query err: %v\n", s.servName, err)
+		logger.WithError(err).Error("encode es query failed")
 		return nil, 0, syserror.InternalError
 	}
 
@@ -78,19 +79,19 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 		s.es.Client.Search.WithTrackTotalHits(true),
 	)
 	if err != nil {
-		log.Printf("[%s]es search err: %v", s.servName, err)
+		logger.WithError(err).Error("es search failed")
 		return nil, 0, syserror.InternalError
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		log.Printf("[%s]es search response error: %s", s.servName, res.String())
+		logger.WithField("status", res.Status()).Error("es search response error")
 		return nil, 0, syserror.InternalError
 	}
 
 	esResp, err := search.ParseSearchResponse(res)
 	if err != nil {
-		log.Printf("[%s]%v\n", s.servName, err)
+		logger.WithError(err).Error("parse es search response failed")
 		return nil, 0, syserror.InternalError
 	}
 
@@ -107,23 +108,23 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 	// 获取帖子map
 	postMap, err := s.postRepo.FindPostMapByIDs(postIDs)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find post map by ids failed")
 		return nil, 0, syserror.InternalError
 	}
 
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("get user client failed")
 		return nil, 0, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
 	if err != nil {
-		log.Printf("[%s] 调用 BatchGetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call BatchGetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
+			logger.WithError(err).Error("non gRPC error when calling BatchGetUserInfo")
 			return nil, 0, syserror.NetworkError
 		}
 		switch st.Code() {
@@ -132,7 +133,7 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 		case codes.Canceled:
 			return nil, 0, syserror.NetworkError
 		default:
-			log.Println(st.Message())
+			logger.WithField("grpc_message", st.Message()).Warn("grpc error when calling BatchGetUserInfo")
 		}
 	}
 

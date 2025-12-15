@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"MathOverflow/internal/common/api"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
 	"MathOverflow/internal/forum-service/service"
@@ -23,7 +24,7 @@ func (sc *SearchController) SearchPosts(c *gin.Context) {
 	ctx := c.Request.Context()
 	var req request.SearchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "搜索参数不合法", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("搜索参数不合法").Send()
 		return
 	}
 	// 计算分页
@@ -37,15 +38,11 @@ func (sc *SearchController) SearchPosts(c *gin.Context) {
 	result, total, syserr := sc.searchServ.SearchPosts(ctx, req)
 	switch syserr {
 	case syserror.NetworkError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "搜索失败", "data": nil, "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("搜索失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "搜索完成", "data": result, "pagination": gin.H{
-		"page":  req.Page,
-		"size":  size,
-		"total": total,
-	}, "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("搜索完成").Data(result).Pagination(page, size, int(total)).Send()
 }

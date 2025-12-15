@@ -3,10 +3,10 @@ package client
 import (
 	"MathOverflow/internal/common/config"
 	common "MathOverflow/internal/common/model"
+	"MathOverflow/internal/common/utils"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"path"
 	"time"
 
@@ -37,10 +37,10 @@ func InitMinIO(cfg config.MinioConfig) (*MinioClinet, error) {
 			fmt.Println("MinIO connected:", cfg.Endpoint)
 			break
 		}
-		log.Printf("连接 MinIO 失败 (第 %d/%d 次): %v", i, maxRetries, err)
+		utils.Logger().WithField("retry", i).WithField("max_retries", maxRetries).WithError(err).Error("连接 MinIO 失败")
 		if i < maxRetries {
 			time.Sleep(retryInterval)
-			log.Println("正在重试连接 MinIO...")
+			utils.Logger().Info("正在重试连接 MinIO...")
 		}
 	}
 	if err != nil {
@@ -76,7 +76,7 @@ func InitMinIO(cfg config.MinioConfig) (*MinioClinet, error) {
 		config.Rules = []lifecycle.Rule{rule}
 		err = client.SetBucketLifecycle(ctx, cfg.Bucket, config)
 		if err != nil {
-			log.Fatalf("设置生命周期失败: %v", err)
+			utils.Logger().WithError(err).Fatal("设置 MinIO 生命周期失败")
 		}
 		fmt.Printf("已为 bucket: %s 启用临时文件自动清理,清理周期为 %d天.\n", cfg.Bucket, cfg.CleanCycleDays)
 	}

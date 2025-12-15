@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"MathOverflow/internal/common/api"
 	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
@@ -24,7 +25,7 @@ func NewPostController(postServ service.PostService) PostController {
 func (pc *PostController) CreateNewPost(c *gin.Context) {
 	var req request.PostCreate
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "发布失败,数据格式有误", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("发布失败,数据格式有误").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -32,16 +33,16 @@ func (pc *PostController) CreateNewPost(c *gin.Context) {
 	postID, err := pc.postServ.CreateNewPost(ctx, userID, req)
 	switch err {
 	case syserror.ResourceExpiredError:
-		c.JSON(http.StatusGone, gin.H{"message": "图片附件已过期,请重新上传", "code": http.StatusGone, "data": nil})
+		api.JSON(c).Code(http.StatusGone).Message("图片附件已过期,请重新上传").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "帖子发布失败", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("帖子发布失败").Send()
 		return
 	case syserror.DuplicateError:
-		c.JSON(http.StatusConflict, gin.H{"message": "帖子已经发布", "code": http.StatusConflict, "data": nil})
+		api.JSON(c).Code(http.StatusConflict).Message("帖子已经发布").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "发布成功", "code": http.StatusOK, "data": gin.H{"post_id": strconv.FormatInt(postID, 10)}})
+	api.JSON(c).Code(http.StatusOK).Message("发布成功").Data(gin.H{"post_id": strconv.FormatInt(postID, 10)}).Send()
 }
 
 // 获取帖子信息
@@ -51,25 +52,25 @@ func (pc *PostController) GetPostData(c *gin.Context) {
 	var userID = c.GetInt64("userID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	userInfo, postData, syserr := pc.postServ.GetOnePost(ctx, postID, userID)
 	switch syserr {
 	case syserror.NetworkError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器异常,请稍后再试").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到该用户的帖子", "code": http.StatusNotFound, "data": nil})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到该用户的帖子").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": gin.H{
+	api.JSON(c).Code(http.StatusOK).Message("请求成功").Data(gin.H{
 		"user_info": userInfo,
 		"post_data": postData,
-	}})
+	}).Send()
 }
 
 // 批量获取帖子信息
@@ -87,16 +88,13 @@ func (pc *PostController) GetManyPostData(c *gin.Context) {
 	multiData, syserr := pc.postServ.GetManyPosts(ctx, page, limit, model.OrderBy(order))
 	switch syserr {
 	case syserror.NetworkError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器异常,请稍后再试").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": multiData, "pagination": gin.H{
-		"page":      page,
-		"page_size": limit,
-	}})
+	api.JSON(c).Code(http.StatusOK).Message("请求成功").Data(multiData).Pagination(page, limit, 0).Send()
 
 }
 
@@ -105,12 +103,12 @@ func (pc *PostController) UpdateOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	var req request.PostUpdate
 	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "更新失败,数据格式有误", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("更新失败,数据格式有误").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -118,20 +116,20 @@ func (pc *PostController) UpdateOnePost(c *gin.Context) {
 	syserr := pc.postServ.UpdateOnePost(ctx, userID, postID, req)
 	switch syserr {
 	case syserror.PermissionDeniedError:
-		c.JSON(http.StatusUnauthorized, gin.H{"message": "您无权修改他人的帖子", "code": http.StatusUnauthorized})
+		api.JSON(c).Code(http.StatusUnauthorized).Message("您无权修改他人的帖子").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要修改的帖子", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要修改的帖子").Send()
 		return
 	case syserror.ResourceExpiredError:
-		c.JSON(http.StatusGone, gin.H{"message": "附件资源已过期,请重新上传", "code": http.StatusGone})
+		api.JSON(c).Code(http.StatusGone).Message("附件资源已过期,请重新上传").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "更新失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("更新失败").Send()
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "帖子更新成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("帖子更新成功").Send()
 }
 
 // 删除帖子及所有回帖
@@ -139,7 +137,7 @@ func (pc *PostController) DeleteOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -148,19 +146,19 @@ func (pc *PostController) DeleteOnePost(c *gin.Context) {
 	syserr := pc.postServ.DeleteOnePost(ctx, postID, userID, role)
 	switch syserr {
 	case syserror.PermissionDeniedError:
-		c.JSON(http.StatusUnauthorized, gin.H{"message": "您无权删除他人的帖子", "code": http.StatusUnauthorized})
+		api.JSON(c).Code(http.StatusUnauthorized).Message("您无权删除他人的帖子").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要删除的帖子", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要删除的帖子").Send()
 		return
 	case syserror.NetworkError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "删除失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("删除失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "删除成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("删除成功").Send()
 }
 
 // / 点赞接口
@@ -169,7 +167,7 @@ func (pc *PostController) LikeOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -177,16 +175,16 @@ func (pc *PostController) LikeOnePost(c *gin.Context) {
 	syserr := pc.postServ.LikeOnePost(ctx, postID, userID)
 	switch syserr {
 	case syserror.DuplicateError:
-		c.JSON(http.StatusConflict, gin.H{"message": "您已点过赞", "code": http.StatusConflict})
+		api.JSON(c).Code(http.StatusConflict).Message("您已点过赞").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要点赞的帖子", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要点赞的帖子").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "点赞成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("点赞成功").Send()
 }
 
 // 取消点赞
@@ -194,7 +192,7 @@ func (pc *PostController) CancelLikeOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -202,13 +200,13 @@ func (pc *PostController) CancelLikeOnePost(c *gin.Context) {
 	syserr := pc.postServ.CancelLikeOnePost(ctx, postID, userID)
 	switch syserr {
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "未点赞过该帖子", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("未点赞过该帖子").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "取消点赞成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("取消点赞成功").Send()
 }
 
 // / 收藏接口
@@ -217,7 +215,7 @@ func (pc *PostController) StarOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -225,16 +223,16 @@ func (pc *PostController) StarOnePost(c *gin.Context) {
 	syserr := pc.postServ.StarOnePost(ctx, postID, userID)
 	switch syserr {
 	case syserror.DuplicateError:
-		c.JSON(http.StatusConflict, gin.H{"message": "您已收藏", "code": http.StatusConflict})
+		api.JSON(c).Code(http.StatusConflict).Message("您已收藏").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要收藏的帖子", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要收藏的帖子").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "收藏成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("收藏成功").Send()
 }
 
 // 取消收藏
@@ -242,7 +240,7 @@ func (pc *PostController) CancelStarOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的帖子id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -250,13 +248,13 @@ func (pc *PostController) CancelStarOnePost(c *gin.Context) {
 	syserr := pc.postServ.CancelStarOnePost(ctx, postID, userID)
 	switch syserr {
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "未收藏过该帖子", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("未收藏过该帖子").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "取消收藏成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("取消收藏成功").Send()
 }
 
 // 查询当前用户收藏的帖子（分页）
@@ -272,15 +270,11 @@ func (pc *PostController) GetUserStarredPosts(c *gin.Context) {
 	posts, total, syserr := pc.postServ.GetUserStarredPosts(ctx, userID, page, limit)
 	switch syserr {
 	case syserror.NetworkError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器异常,请稍后再试").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": posts, "pagination": gin.H{
-		"page":      page,
-		"page_size": limit,
-		"total":     total,
-	}})
+	api.JSON(c).Code(http.StatusOK).Message("查询成功").Data(posts).Pagination(page, limit, int(total)).Send()
 }

@@ -3,10 +3,10 @@ package main
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/es-service/consumer"
 	"context"
 	"errors"
-	"log"
 	"os"
 	"os/signal"
 
@@ -14,20 +14,22 @@ import (
 )
 
 func main() {
+	utils.InitLogger("es-service")
+
 	cfg, err := config.LoadConfig("es.yaml")
 	if err != nil {
-		log.Fatalf("load config failed: %v", err)
+		utils.Logger().WithError(err).Fatal("load config failed")
 	}
 
 	rabbit, err := client.InitRabbitMQ(cfg.RabbitMQ)
 	if err != nil {
-		log.Fatalf("init rabbitmq failed: %v", err)
+		utils.Logger().WithError(err).Fatal("init rabbitmq failed")
 	}
 	defer rabbit.Close()
 
 	es, err := client.InitESClient(cfg)
 	if err != nil {
-		log.Fatalf("init es failed: %v", err)
+		utils.Logger().WithError(err).Fatal("init es client failed")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -41,7 +43,7 @@ func main() {
 	})
 
 	if err := eg.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("es-service exit with error: %v", err)
+		utils.Logger().WithError(err).Fatal("es-service exit with error")
 	}
 
 }

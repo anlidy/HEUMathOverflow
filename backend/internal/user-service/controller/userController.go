@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"MathOverflow/internal/common/api"
 	common "MathOverflow/internal/common/model"
 	"MathOverflow/internal/common/utils"
 	syserror "MathOverflow/internal/user-service/model/error"
@@ -8,7 +9,6 @@ import (
 	"MathOverflow/internal/user-service/service"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -31,27 +31,27 @@ func (uc *UserController) UserRegister(c *gin.Context) {
 	var req request.UserRegister
 	var ctx = c.Request.Context()
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "注册失败,数据格式有误", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("注册失败,数据格式有误").Send()
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "注册失败,用户名不能为空", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("注册失败,用户名不能为空").Send()
 	}
 	session, info, err := uc.userService.UserRegister(ctx, req)
 	switch err {
 	case syserror.EmailError:
-		c.JSON(http.StatusBadRequest, gin.H{"message": "注册失败,邮箱格式有误", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("注册失败,邮箱格式有误").Send()
 	case syserror.EmailExistsError:
-		c.JSON(http.StatusConflict, gin.H{"message": "注册失败,用户已存在", "code": http.StatusConflict, "data": nil})
+		api.JSON(c).Code(http.StatusConflict).Message("注册失败,用户已存在").Send()
 	case syserror.NameExistsError:
-		c.JSON(http.StatusConflict, gin.H{"message": "注册失败,该用户名已被注册", "code": http.StatusConflict, "data": nil})
+		api.JSON(c).Code(http.StatusConflict).Message("注册失败,该用户名已被注册").Send()
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "注册失败", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("注册失败").Send()
 	case syserror.NoError:
 		// 设置 Cookie
 		c.SetCookie("session-id", session.SessionID, int(session.TTL.Seconds()), "/", "localhost", false, true) // 生产环境改成 math-overflow.edu
-		c.JSON(http.StatusOK, gin.H{"message": "注册成功", "code": http.StatusOK, "data": gin.H{"user_info": info}})
+		api.JSON(c).Code(http.StatusOK).Message("注册成功").Data(gin.H{"user_info": info}).Send()
 	}
 }
 
@@ -60,23 +60,23 @@ func (uc *UserController) UserLogin(c *gin.Context) {
 	var ctx = c.Request.Context()
 	var req request.UserLogin
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "登录失败,数据格式有误", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("登录失败,数据格式有误").Send()
 		return
 	}
 	session, info, syserr := uc.userService.UserLogin(ctx, req)
 	switch syserr {
 	case syserror.EmailError:
-		c.JSON(http.StatusBadRequest, gin.H{"message": "登录失败,邮箱格式有误", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("登录失败,邮箱格式有误").Send()
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "登录失败,找不到该用户", "code": http.StatusNotFound, "data": nil})
+		api.JSON(c).Code(http.StatusNotFound).Message("登录失败,找不到该用户").Send()
 	case syserror.PasswordError:
-		c.JSON(http.StatusUnauthorized, gin.H{"message": "登录失败,账户或密码错误", "code": http.StatusUnauthorized, "data": nil})
+		api.JSON(c).Code(http.StatusUnauthorized).Message("登录失败,账户或密码错误").Send()
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "登录失败", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("登录失败").Send()
 	case syserror.NoError:
 		// 设置 Cookie
 		c.SetCookie("session-id", session.SessionID, int(session.TTL.Seconds()), "/", "localhost", false, true) // 生产环境改成 math-overflow.edu
-		c.JSON(http.StatusOK, gin.H{"message": "登录成功", "code": http.StatusOK, "data": gin.H{"user_info": info}})
+		api.JSON(c).Code(http.StatusOK).Message("登录成功").Data(gin.H{"user_info": info}).Send()
 	}
 }
 
@@ -88,8 +88,8 @@ func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	// 获取上传文件
 	rawFile, fileHeader, err := c.Request.FormFile("file")
 	if err != nil {
-		log.Printf("[%s] %v\n", uc.name, err)
-		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": "文件上传失败", "data": nil})
+		utils.WithContext(ctx).WithField("controller", uc.name).WithError(err).Error("parse avatar upload file failed")
+		api.JSON(c).Code(http.StatusBadRequest).Message("文件上传失败").Send()
 		return
 	}
 	defer rawFile.Close()
@@ -97,7 +97,7 @@ func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	// 判断文件类型
 	fileExt := filepath.Ext(fileHeader.Filename)
 	if !utils.IsValidImage(fileExt) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": "上传失败,非图片文件", "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("上传失败,非图片文件").Send()
 		return
 	}
 
@@ -118,9 +118,9 @@ func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	avatarUrl, sysErr := uc.userService.UserUploadAvatar(ctx, userID, file)
 	switch sysErr {
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "头像上传失败", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("头像上传失败").Send()
 	case syserror.NoError:
-		c.JSON(http.StatusOK, gin.H{"message": "头像上传成功", "code": http.StatusOK, "data": gin.H{"avatar_url": avatarUrl}})
+		api.JSON(c).Code(http.StatusOK).Message("头像上传成功").Data(gin.H{"avatar_url": avatarUrl}).Send()
 	}
 }
 
@@ -157,19 +157,19 @@ func (uc *UserController) UserUploadProfie(c *gin.Context) {
 	var userID = c.GetInt64("userID")
 	var req request.UserProfie
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "数据格式校验不通过", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("数据格式校验不通过").Send()
 		return
 	}
 	err := uc.userService.UserUpdateProfie(ctx, userID, req)
 	switch err {
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到该用户", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到该用户").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "更新失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("更新失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "用户信息更新成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("用户信息更新成功").Send()
 }
 
 // 更新用户密码
@@ -178,17 +178,17 @@ func (uc *UserController) UserUpdatePassword(c *gin.Context) {
 	var userID = c.GetInt64("userID")
 	var req request.UserPassword
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "数据格式校验不通过", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("数据格式校验不通过").Send()
 		return
 	}
 	err := uc.userService.UserUpdatePassword(ctx, userID, req)
 	switch err {
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到该用户", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到该用户").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "密码修改失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("密码修改失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "密码修改成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("密码修改成功").Send()
 }
