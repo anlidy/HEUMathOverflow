@@ -5,16 +5,31 @@ import (
 	"MathOverflow/internal/forum-service/controller"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
 func SetupRouter(rdb *redis.Client,
 	forumContrller controller.ForumController,
 	postController controller.PostController,
-	replyController controller.ReplyController) *gin.Engine {
+	replyController controller.ReplyController,
+	searchController controller.SearchController) *gin.Engine {
 
 	r := gin.Default()
+<<<<<<< HEAD
 	r.Use(middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"}))
+=======
+	r.Use(
+		middleware.RequestIDMiddleware(),
+		middleware.MetricsMiddleware("forum-service"),
+		middleware.LoggingMiddleware(),
+		middleware.CorsMiddleware([]string{"http://localhost:3000", "https://math-overflow.edu"}),
+	)
+
+	// Prometheus metrics endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+>>>>>>> go-dev
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 	forum := v1.Group("/forum")
@@ -35,9 +50,7 @@ func SetupRouter(rdb *redis.Client,
 	authPost.DELETE("/:postID", postController.DeleteOnePost)          // 删除帖子
 	authPost.POST("/like/:postID", postController.LikeOnePost)         // 点赞帖子
 	authPost.DELETE("/like/:postID", postController.CancelLikeOnePost) // 取消点赞
-	authPost.GET("/like/:postID", postController.GetPostLikeStatus)    // 查询是否点赞
 	authPost.POST("/star/:postID", postController.StarOnePost)         // 收藏帖子
-	authPost.GET("/star/:postID", postController.GetPostStarStatus)    // 查询收藏状态
 	authPost.DELETE("/star/:postID", postController.CancelStarOnePost) // 取消收藏
 	authPost.GET("/starred", postController.GetUserStarredPosts)       // 查询当前用户的收藏列表
 
@@ -49,6 +62,9 @@ func SetupRouter(rdb *redis.Client,
 	authReply.DELETE("/:replyID", replyController.DeleteOneReply)          // 删除单条回复
 	authReply.POST("/like/:replyID", replyController.LikeOneReply)         // 点赞回复
 	authReply.DELETE("/like/:replyID", replyController.CancelLikeOneReply) // 取消点赞
-	authReply.GET("/like", replyController.GetReplyLikeStatus)             // 查询是否点赞
+
+	// 搜索
+	search := authForum.Group("/search")
+	search.POST("", searchController.SearchPosts) // 搜索帖子:tags和关键词共用
 	return r
 }

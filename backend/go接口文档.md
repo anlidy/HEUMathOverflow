@@ -96,7 +96,7 @@ Response:
 可直接内嵌链接到网页中, 浏览器进行请求
 
 ```ts
-GET /api/v1/user/avatar/{filename}	// 请求链接即为avatar_url
+GET /api/v1/user/avatar/{filename} // 请求链接即为avatar_url
 
 Response:
 Content-Type: image/png  // 允许jpg,jpeg,png,bmp格式
@@ -116,7 +116,7 @@ Content-Type: application/json
 Request:
 {
   "username": string,
-  ...	// 后续可添加字段
+  ... // 后续可添加字段
 }
   
 Response:
@@ -180,7 +180,7 @@ Response:
 - 请求方法: GET
 
 ```ts
-GET /api/v1/forum/file/{filename}	 // 请求链接即为image_url
+GET /api/v1/forum/file/{filename}  // 请求链接即为image_url
 
 Response:
 Content-Type: image/png  // 允许（正则式） jpg|jpeg|png|bmp|mp3|docx?|pptx?|xlsx?|pdf|zip|rar
@@ -230,6 +230,8 @@ Response:
         "post_data": {  // 帖子数据
             "post_id": string,
             "title": string,
+            "content": string,
+            "image_urls": string[],
             "tags": string[],
             "status": int,  // 1:未解决 2:已解决 3:已认证
             "views": int, // 浏览量
@@ -239,8 +241,8 @@ Response:
             "last_reply_at": string | null, // "2025-11-20T12:12:40.33807Z"
             "created_at": string,
             "updated_at": string,
-            "content": string,
-            "image_urls": string[]
+            "liked":bool, // 当前用户是否点赞该贴
+            "starred":bool, // 当前用户是否收藏该贴
         },
         "user_info": {  // 发帖人的用户信息
             "user_id": string,
@@ -259,10 +261,10 @@ Response:
 - 相对路径: /posts
 
 ```ts
-// offset: 偏移量
-// limit: 数量
+// page: 页码 (默认:1)
+// page_size: 每页帖子数(默认 20)
 // order: 排序方式 (0:推荐 1:最热 2:最新),默认值:0
-GET /api/v1/forum/posts?offset=0&limit=10&order=0  
+GET /api/v1/forum/posts?page=1&page_size=20&order=0  
 
 // 此data字段返回一个post列表,每个元素的内容与2.2.2的data字段一致
 Response:
@@ -273,6 +275,8 @@ Response:
         "post_data": {  // 帖子数据
             "post_id": string,
             "title": string,
+            "content": string,
+            "image_urls": string[],
             "tags": string[],
             "status": int,  // 1:未解决 2:已解决 3:已认证
             "views": int, // 浏览量
@@ -282,8 +286,7 @@ Response:
             "last_reply_at": string | null, // "2025-11-20T12:12:40.33807Z"
             "created_at": string,
             "updated_at": string,
-            "content": string,
-            "image_urls": string[]
+            // 不显示状态,进入详情页再单独查询一次帖子数据
         },
         "user_info": {  // 发帖人的用户信息
             "user_id": string,
@@ -294,6 +297,10 @@ Response:
       },
         ...
     ],
+    "pagination":{   // COUNT(*) 非常耗时,不返回total帖子总数
+        "page":int,
+        "page_size":int    
+    },
     "message": string
 }
 ```
@@ -370,25 +377,7 @@ Response:
 }
 ```
 
-#### 2.2.8 查询用户是否点赞了帖子
-
-- 请求方法: GET
-- 相对路径: /posts/like/{post_id}
-
-```ts
-GET /api/v1/forum/posts/like/{post_id}
-
-Response:
-{
-    "code": int,
-    "message": string,
-    "data": {
-        "liked": bool
-    }
-}
-```
-
-#### 2.2.9 收藏帖子
+#### 2.2.8 收藏帖子
 
 - 请求方法: POST
 - 相对路径: /posts/star/{post_id}
@@ -404,7 +393,7 @@ Response:
 }
 ```
 
-#### 2.2.10 取消收藏
+#### 2.2.9 取消收藏
 
 - 请求方法: DELETE
 - 相对路径: /posts/star/{post_id}
@@ -419,33 +408,15 @@ Response:
 }
 ```
 
-#### 2.2.11 查询用户是否收藏了帖子
-
-- 请求方法: GET
-- 相对路径: /posts/star/{post_id}
-
-```ts
-GET /api/v1/forum/posts/star/{post_id}
-
-Response:
-{
-    "code": int,
-    "message": string,
-    "data": {
-        "starred": bool
-    }
-}
-```
-
-#### 2.2.12 查询当前用户收藏的帖子（分页）
+#### 2.2.10 查询当前用户收藏的帖子（分页）
 
 - 请求方法: GET
 - 相对路径: /posts/starred
 
 ```ts
-// offset: 偏移量（默认 0）
-// limit: 数量（默认 20）
-GET /api/v1/forum/posts/starred?offset=0&limit=20
+// page: 页码（默认 1）
+// page_size: 每页帖子数(默认 20)
+GET /api/v1/forum/posts/starred?page=1&page_size=20
 
 Response:
 {
@@ -455,6 +426,8 @@ Response:
             "post_data": {  // 帖子数据
                 "post_id": string,
                 "title": string,
+                "content": string,
+                "image_urls": string[],
                 "tags": string[],
                 "status": int,
                 "views": int,
@@ -464,8 +437,7 @@ Response:
                 "last_reply_at": string | null,
                 "created_at": string,
                 "updated_at": string,
-                "content": string,
-                "image_urls": string[]
+                // 进入详情页再查询一次帖子获取状态
             },
             "user_info": {  // 发帖人的用户信息
                 "user_id": string,
@@ -476,6 +448,11 @@ Response:
         },
         ...
     ],
+    "pagination":{
+        "page":int,
+        "page_size":int,
+        "total":int
+    },
     "message": string
 }
 ```
@@ -514,9 +491,9 @@ Response:
 - 相对路径: /posts/{postID}/replies
 
 ```ts
-// offset: 偏移量
-// limit: 数量
-GET /api/v1/forum/posts/{postID}/replies?offset=0&limit=10  
+// page: 页码
+// page_size: 每页帖子数
+GET /api/v1/forum/posts/{postID}/replies?page=1&page_size=20  
 
 Response:
 {
@@ -534,17 +511,24 @@ Response:
                 "post_id": string,
                 "parent_reply_id": string | null,
                 "status": int,  // 1:未精选 2:作者精选 3:教师精选
+                "likes": int,   // 点赞数
                 "certified_by": string | null,
-                "created_at": string,
                 "content": string,
+                "image_urls": string[],
                 "voice_url": string,
                 "voice_text": string,
-                "image_urls": string[],
-                "ai_answered": bool
+                "ai_answered": bool,
+                "created_at": string,
+                "liked":bool, // 当前用户是否点赞该回复
             }
         },
         ...
     ],
+    "pagination":{
+        "page":int,
+        "page_size":int,
+        "total":int,
+    },
     "message": string
 }
 ```
@@ -582,20 +566,56 @@ Response:
 }
 ```
 
-#### 2.3.5 查询用户是否点赞了回复
+#### 2.4. 帖子搜索
 
-- 请求方法: GET
-- 相对路径: /replies/like/{reply_id}
+- 请求方法: POST
+- 相对路径: /search
 
 ```ts
-GET /api/v1/forum/replies/like/{reply_id}
+POST /api/v1/forum/search
+
+Request:
+{
+    "query":"test2",
+    "tags":[],
+    "page":1,   // 页码,从1开始
+    "page_size":20, // 每页帖子数
+    "sort":1    // 1:默认排序 2:热度高 3:新发布 4:浏览多 5:评论多
+}
 
 Response:
 {
-    "code": int,
+    "code": 200,
+    "data": [
+        {
+            "user_info": {
+                "user_id": string,
+                "username": string,
+                "role": int,
+                "avatar_url": string
+            },
+            "post_data": {
+                "post_id": string,
+                "title": string,
+                "content": string,
+                "image_urls": string[],
+                "tags": string[],
+                "status": int,
+                "views": int,
+                "likes": int,
+                "stars": int,
+                "replies": int,
+                "last_reply_at": string | null,
+                "created_at": string,
+                "updated_at": string,
+            }
+        }
+    ],
     "message": string,
-    "data": {
-        "liked": bool
-    }
+    "pagination":{
+        "page": int,
+        "page_size": int,
+        "total": int,
+    },
 }
 ```

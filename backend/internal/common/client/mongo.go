@@ -2,9 +2,9 @@ package client
 
 import (
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/utils"
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -26,11 +26,11 @@ func InitMongo(cfg config.MongoConfig) (*mongo.Database, error) {
 
 		client, err = mongo.Connect(ctx, clientOpts)
 		if err != nil {
-			log.Printf("连接 MongoDB 失败 (第 %d/%d 次): %v", i, maxRetries, err)
+			utils.Logger().WithField("retry", i).WithField("max_retries", maxRetries).WithError(err).Error("连接 MongoDB 失败")
 		} else {
 			// 尝试 ping 检查连接是否真正可用
 			if pingErr := client.Ping(ctx, nil); pingErr != nil {
-				log.Printf("Ping MongoDB 失败 (第 %d/%d 次): %v", i, maxRetries, pingErr)
+				utils.Logger().WithField("retry", i).WithField("max_retries", maxRetries).WithError(pingErr).Error("Ping MongoDB 失败")
 				err = pingErr
 			} else {
 				fmt.Println("MongoDB connected:", cfg.Database)
@@ -40,7 +40,7 @@ func InitMongo(cfg config.MongoConfig) (*mongo.Database, error) {
 
 		if i < maxRetries {
 			time.Sleep(retryInterval)
-			log.Println("正在重试连接 MongoDB...")
+			utils.Logger().Info("正在重试连接 MongoDB...")
 		}
 	}
 

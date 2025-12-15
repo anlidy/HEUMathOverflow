@@ -6,12 +6,22 @@ import (
 	"github.com/lib/pq"
 )
 
+// 帖子状态
 type PostStatus int
 
 const (
-	Unanswered PostStatus = iota + 1
-	Answered
-	Certified
+	Unanswered PostStatus = iota + 1 // 未回答
+	Answered                         // 已回答
+	Certified                        // 已认证
+)
+
+// 排序类型
+type OrderBy int
+
+const (
+	Recommend = iota // 推荐排序
+	Hottest          // 热门排序
+	Latest           // 最新排序
 )
 
 // pg表
@@ -23,10 +33,10 @@ type Post struct {
 	ImageURLs   pq.StringArray `gorm:"type:varchar(128)[]" json:"image_urls"`
 	Tags        pq.StringArray `gorm:"type:varchar(32)[]" json:"tags"`
 	Status      PostStatus     `gorm:"not null" json:"status"`
-	Views       uint           `json:"views"`         // 浏览量
-	Likes       uint           `json:"likes"`         // 赞同数
-	Stars       uint           `json:"stars"`         // 收藏数
-	Replies     uint           `json:"replies"`       // 评论数
+	Views       int64          `json:"views"`         // 浏览量
+	Likes       int64          `json:"likes"`         // 赞同数
+	Stars       int64          `json:"stars"`         // 收藏数
+	Replies     int64          `json:"replies"`       // 评论数
 	LastReplyAt *time.Time     `json:"last_reply_at"` // 指针类型便于判空
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
@@ -42,8 +52,25 @@ type PostLike struct {
 
 // 存储用户对帖子的收藏行为
 type PostStar struct {
-	PostID    int64 `gorm:"primaryKey"`
-	UserID    int64 `gorm:"primaryKey"`
+	ID        int64  `gorm:"primaryKey"`
+	PostID    *int64 `gorm:"index"` // 可以为 NULL
+	UserID    int64  `gorm:"index"`
 	CreatedAt time.Time
-	Post      Post `gorm:"foreignKey:PostID;references:ID;"` // 不级联删除,显示帖子已删除
+	Post      Post `gorm:"foreignKey:PostID;references:ID;constraint:OnDelete:SET NULL;"`
+}
+
+// redis缓存帖子的高频数据
+type PostStat struct {
+	PostID  int64
+	Views   int64 // 可能累计为复数
+	Likes   int64
+	Stars   int64
+	Replies int64
+}
+
+// 存储post表及当前用户的like&star情况
+type PostDetail struct {
+	Post
+	Liked   bool
+	Starred bool
 }

@@ -11,7 +11,6 @@ import (
 	"MathOverflow/internal/user-service/repository"
 	userpb "MathOverflow/proto/user"
 	"context"
-	"log"
 	"time"
 
 	"github.com/jinzhu/copier"
@@ -46,12 +45,13 @@ func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo
 
 // 获取单个用户信息
 func (s *userService) RPCGetUserInfo(ctx context.Context, userID int64) (*userpb.GetUserResponse, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	user, err := s.userRepo.FindUserByID(userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, syserror.NotFoundError
 		}
-		log.Printf("[%s] %v", s.servName, err)
+		logger.WithError(err).Error("find user by id failed")
 		return nil, syserror.InternalError
 	}
 	info := &userpb.GetUserResponse{
@@ -65,9 +65,10 @@ func (s *userService) RPCGetUserInfo(ctx context.Context, userID int64) (*userpb
 
 // 批量获取用户信息
 func (s *userService) RPCBatchGetUserInfo(ctx context.Context, userIDs []int64) (map[int64]*userpb.GetUserResponse, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	users, err := s.userRepo.BatchFindUserByID(userIDs)
 	if err != nil {
-		log.Printf("[%s] %v", s.servName, err)
+		logger.WithError(err).Error("batch find user by id failed")
 		return nil, syserror.InternalError
 	}
 	infoMap := make(map[int64]*userpb.GetUserResponse, len(users))
@@ -84,6 +85,7 @@ func (s *userService) RPCBatchGetUserInfo(ctx context.Context, userIDs []int64) 
 
 // 用户注册
 func (s *userService) UserRegister(ctx context.Context, req request.UserRegister) (*model.Session, *response.UserInfo, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 校验用户邮箱格式
 	if !utils.IsValidEmail(req.Email) {
 		return nil, nil, syserror.EmailError
@@ -91,7 +93,7 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 	// 密码哈希加密
 	passwordHash, err := utils.HashPassword(req.Password)
 	if err != nil {
-		log.Printf("[%s] %v", s.servName, err)
+		logger.WithError(err).Error("hash password failed")
 		return nil, nil, syserror.InternalError
 	}
 
@@ -117,7 +119,7 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 	// 将新用户存入数据库
 	err = s.userRepo.CreateUser(&user)
 	if err != nil {
-		log.Printf("[%s] %v", s.servName, err)
+		logger.WithError(err).Error("create user failed")
 		return nil, nil, syserror.InternalError
 	}
 
@@ -132,7 +134,7 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 	}
 	err = s.sessionRepo.SetSession(ctx, *session) // 默认有效期为1天
 	if err != nil {
-		log.Printf("[%s] %v", s.servName, err)
+		logger.WithError(err).Error("set session failed")
 		return nil, nil, syserror.InternalError
 	}
 
@@ -148,6 +150,7 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 
 // 用户登录
 func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (*model.Session, *response.UserInfo, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 校验用户邮箱格式
 	if !utils.IsValidEmail(req.Email) {
 		return nil, nil, syserror.EmailError
@@ -159,7 +162,7 @@ func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (*mo
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find user by email failed")
 		return nil, nil, syserror.InternalError
 	}
 	// 校验密码是否正确
@@ -184,14 +187,14 @@ func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (*mo
 	}
 	err = s.sessionRepo.SetSession(ctx, *session)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("set session failed")
 		return nil, nil, syserror.InternalError
 	}
 
 	// 更新用户上次登录时间
 	_, err = s.userRepo.UpdateColumn(user.ID, "last_login", time.Now())
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err) // 不影响用户正常登录
+		logger.WithError(err).Warn("update last_login failed")
 	}
 
 	// 返回用户信息
@@ -207,19 +210,20 @@ func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (*mo
 
 // 上传用户头像
 func (s *userService) UserUploadAvatar(ctx context.Context, userID int64, file common.File) (string, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 将文件存入minio
 	url, err := s.fileRepo.UploadFile(ctx, s.cfg.Minio.Bucket, file)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("upload avatar failed")
 		return "", syserror.InternalError
 	}
 	// 更新用户信息
 	_, err = s.userRepo.UpdateColumn(userID, "avatar_url", url)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("update avatar_url failed")
 		err := s.fileRepo.DeleteFile(ctx, file.Filename) // 删除上传的文件
 		if err != nil {
-			log.Printf("[%s] %v\n", s.servName, err)
+			logger.WithError(err).Error("delete avatar file failed")
 		}
 		return "", syserror.InternalError
 	}
@@ -245,12 +249,13 @@ func (s *userService) UserDownloadAvatar(ctx context.Context, filename string) (
 
 // 修改用户信息
 func (s *userService) UserUpdateProfie(ctx context.Context, userID int64, req request.UserProfie) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 获取用户记录
 	user, err := s.userRepo.FindUserByID(userID)
 	if err == gorm.ErrRecordNotFound {
 		return syserror.NotFoundError
 	} else if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find user by id failed")
 		return syserror.InternalError
 	}
 	// 覆盖修改的字段
@@ -258,13 +263,13 @@ func (s *userService) UserUpdateProfie(ctx context.Context, userID int64, req re
 		IgnoreEmpty: true, // 忽略 req 中的空值
 	})
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("copy profile fields failed")
 		return syserror.InternalError
 	}
 	// 更新数据库的用户记录
 	_, err = s.userRepo.UpdateUser(&user)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("update user failed")
 		return syserror.InternalError
 	}
 	return syserror.NoError
@@ -272,12 +277,13 @@ func (s *userService) UserUpdateProfie(ctx context.Context, userID int64, req re
 
 // 更新用户密码
 func (s *userService) UserUpdatePassword(ctx context.Context, userID int64, req request.UserPassword) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 获取用户记录
 	user, err := s.userRepo.FindUserByID(userID)
 	if err == gorm.ErrRecordNotFound {
 		return syserror.NotFoundError
 	} else if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find user by id failed")
 		return syserror.InternalError
 	}
 
@@ -289,7 +295,7 @@ func (s *userService) UserUpdatePassword(ctx context.Context, userID int64, req 
 	// 生成新密码哈希
 	newPwdHash, err := utils.HashPassword(req.NewPassword)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("hash new password failed")
 		return syserror.InternalError
 	}
 
@@ -297,7 +303,7 @@ func (s *userService) UserUpdatePassword(ctx context.Context, userID int64, req 
 	user.PasswordHash = newPwdHash
 	_, err = s.userRepo.UpdateUser(&user)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("update user failed")
 		return syserror.InternalError
 	}
 	return syserror.NoError
@@ -305,12 +311,13 @@ func (s *userService) UserUpdatePassword(ctx context.Context, userID int64, req 
 
 // 更新用户角色
 func (s *userService) UpdateUserRole(ctx context.Context, opID int64, req request.UserRole) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	operator, err1 := s.userRepo.FindUserByID(opID)
 	target, err2 := s.userRepo.FindUserByID(req.ID)
 	if err1 == gorm.ErrRecordNotFound || err2 == gorm.ErrRecordNotFound {
 		return syserror.NotFoundError
 	} else if err1 != nil || err2 != nil {
-		log.Printf("[%s] %v %v\n", s.servName, err1, err2)
+		logger.WithError(err1).WithField("target_error", err2).Error("find operator or target user failed")
 		return syserror.InternalError
 	}
 	// 无效的Role, 操作者role不是Admin且role权限低于目标权限时,报错返回
@@ -321,7 +328,7 @@ func (s *userService) UpdateUserRole(ctx context.Context, opID int64, req reques
 	// 更新数据库
 	_, err := s.userRepo.UpdateUser(&target)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("update user role failed")
 		return syserror.InternalError
 	}
 

@@ -1,5 +1,4 @@
 server:
-  domain: math-overflow.edu
   port: 8081
 
 postgres:

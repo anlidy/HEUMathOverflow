@@ -12,7 +12,6 @@ import (
 	userpb "MathOverflow/proto/user"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
@@ -24,13 +23,12 @@ import (
 
 type ReplyService interface {
 	CreateNewReply(ctx context.Context, userID int64, req request.ReplyCreate) (int64, syserror.Error)
-	GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
-	GetManyReplies(ctx context.Context, replyID int64, offset, limit int) ([]response.MultiReplyData, syserror.Error)
+	GetOneReply(ctx context.Context, replyID, userID int64) (*response.UserInfo, *response.ReplyData, syserror.Error)
+	GetManyReplies(ctx context.Context, postID, userID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error)
 	UpdateOneReply(ctx context.Context, userID int64, replyID int64, req request.ReplyUpdate) syserror.Error
 	DeleteOneReply(ctx context.Context, replyID, userID int64, role int) syserror.Error
 	LikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error
 	CancelLikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error
-	HasLikedReply(ctx context.Context, replyID, userID int64) (bool, syserror.Error)
 }
 
 type replyService struct {
@@ -75,6 +73,7 @@ func NewReplyService(cfg config.Config, replyRepo repository.ReplyRepo, fileRepo
 
 // 创建新回贴
 func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req request.ReplyCreate) (int64, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 生成回帖id
 	var replyID = utils.GenerateSnowflakeID()
 	// 将临时url提升为正式url
@@ -88,7 +87,7 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return -1, syserror.ResourceExpiredError
 			}
-			log.Printf("[%s] %v\n", s.servName, err)
+			logger.WithError(err).Error("promote reply image file failed")
 			return -1, syserror.InternalError
 		}
 		images = append(images, newUrl)
@@ -101,7 +100,7 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return -1, syserror.ResourceExpiredError
 			}
-			log.Printf("[%s] %v\n", s.servName, err)
+			logger.WithError(err).Error("promote reply voice file failed")
 			return -1, syserror.InternalError
 		}
 	}
@@ -124,38 +123,45 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 		if utils.IsPgDuplicateKey(err) {
 			return -1, syserror.DuplicateError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("create reply failed")
 		return -1, syserror.InternalError
 	}
-	// 更新原帖的状态
+	// 后台同步
+	go func(ctx context.Context) {
+		// redis的replies+1
+		if err := s.replyRepo.IncreasePostReplies(ctx, req.PostID); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post replies failed")
+		}
+	}(ctx)
 	return replyID, syserror.NoError
 }
 
 // 获取一条回帖
-func (s *replyService) GetOneReply(ctx context.Context, replyID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
+func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (*response.UserInfo, *response.ReplyData, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询回帖信息
-	reply, err := s.replyRepo.FindReplyByID(replyID)
+	reply, err := s.replyRepo.FindReplyDetailByID(replyID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find reply detail failed")
 		return nil, nil, syserror.InternalError
 	}
 
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("get user client failed")
 		return nil, nil, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: reply.ReplierID})
 	if err != nil {
-		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call GetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
+			logger.WithError(err).Error("non gRPC error when calling GetUserInfo")
 			return nil, nil, syserror.NetworkError
 		}
 		switch st.Code() {
@@ -176,22 +182,25 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID int64) (*respons
 	}
 	// 聚合返回查询结果
 	replyData := &response.ReplyData{
-		Reply: reply,
+		Reply: reply.Reply,
+		Liked: reply.Liked,
 	}
 
 	return userInfo, replyData, syserror.NoError
 }
 
 // 获取分页帖子
-func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset, limit int) ([]response.MultiReplyData, syserror.Error) {
+func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64, page, limit int) ([]response.MultiReplyData, int64, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询回帖信息
-	replies, err := s.replyRepo.FindRepliesByPostID(replyID, offset, limit)
+	offset := (page - 1) * limit // 计算偏移量
+	replies, total, err := s.replyRepo.FindReplyDetailsByPostID(postID, userID, offset, limit)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, syserror.NotFoundError
+			return nil, 0, syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
-		return nil, syserror.InternalError
+		logger.WithError(err).Error("find reply details by post id failed")
+		return nil, 0, syserror.InternalError
 	}
 	// 查询回帖正文内容
 	// 构建查询的docID和userID数组
@@ -202,25 +211,25 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return nil, syserror.NetworkError
+		logger.WithError(err).Error("get user client failed")
+		return nil, 0, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
 	if err != nil {
-		log.Printf("[%s] 调用 BatchGetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call BatchGetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
-			return nil, syserror.NetworkError
+			logger.WithError(err).Error("non gRPC error when calling BatchGetUserInfo")
+			return nil, 0, syserror.NetworkError
 		}
 		switch st.Code() {
 		case codes.Internal:
-			return nil, syserror.InternalError
+			return nil, 0, syserror.InternalError
 		case codes.Canceled:
-			return nil, syserror.NetworkError
+			return nil, 0, syserror.NetworkError
 		default:
-			log.Println(st.Message())
+			logger.WithField("grpc_message", st.Message()).Warn("grpc error when calling BatchGetUserInfo")
 		}
 	}
 	// 请求成功
@@ -235,20 +244,22 @@ func (s *replyService) GetManyReplies(ctx context.Context, replyID int64, offset
 			Role:      int(user.Role),
 			AvatarUrl: user.AvatarUrl,
 		}
-		replyDatas[i].ReplyData.Reply = replies[i]
+		replyDatas[i].ReplyData.Reply = replies[i].Reply
+		replyDatas[i].ReplyData.Liked = replies[i].Liked
 	}
-	return replyDatas, syserror.NoError
+	return replyDatas, total, syserror.NoError
 }
 
 // 更新一条回帖
 func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID int64, req request.ReplyUpdate) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询该条回帖
-	reply, err := s.replyRepo.FindReplyByID(replyID)
+	reply, err := s.replyRepo.FindReplyDetailByID(replyID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find reply detail failed")
 		return syserror.InternalError
 	}
 	// 验证当前登录的用户是否为该回帖的作者
@@ -276,7 +287,7 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return syserror.ResourceExpiredError
 			}
-			log.Printf("[%s] %v\n", s.servName, err)
+			logger.WithError(err).Error("promote reply image file failed")
 			return syserror.InternalError
 		}
 		// 完成添加
@@ -284,58 +295,58 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 	}
 
 	// 保存回帖信息
-	_, err = s.replyRepo.UpdateReply(&reply)
+	_, err = s.replyRepo.UpdateReply(&reply.Reply)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("update reply failed")
 		return syserror.InternalError
 	}
 
 	// 后台删除图片
-	go func() {
+	go func(ctx context.Context) {
 		for _, delUrl := range append(req.DeleteImageURLs, oldVoiceURL) {
 			filename := strings.TrimPrefix(delUrl, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			err := s.fileRepo.DeleteFile(ctx, filename)
-			if err != nil {
+			if err := s.fileRepo.DeleteFile(ctx, filename); err != nil {
 				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					log.Printf("[Minio] 找不到文件: %s\n", filename)
+					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting reply file")
 					continue
 				}
-				log.Printf("[%s] %v\n", s.servName, err)
+				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete reply file failed")
 				return
 			}
 		}
-	}()
+	}(ctx)
 	return syserror.NoError
 }
 
 // 删除一条回帖
 func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64, role int) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询回帖信息
-	reply, err := s.replyRepo.FindReplyByID(replyID)
+	reply, err := s.replyRepo.FindReplyDetailByID(replyID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find reply detail failed")
 		return syserror.InternalError
 	}
 
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("get user client failed")
 		return syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: reply.ReplierID})
 	if err != nil {
-		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call GetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
+			logger.WithError(err).Error("non gRPC error when calling GetUserInfo")
 			return syserror.NetworkError
 		}
 		switch st.Code() {
@@ -361,31 +372,38 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("delete reply failed")
 		return syserror.InternalError
 	}
 
 	// 后台删除回帖包含的文件
-	go func() {
+	go func(ctx context.Context) {
 		urls := append(reply.ImageURLs, reply.VoiceURL)
 		for _, url := range urls {
 			filename := strings.TrimPrefix(url, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			err := s.fileRepo.DeleteFile(ctx, url)
-			if err != nil {
+			if err := s.fileRepo.DeleteFile(ctx, url); err != nil {
 				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					log.Printf("[Minio] 找不到文件: %s\n", filename)
+					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting reply file")
 					continue
 				}
-				log.Printf("[%s] %v\n", s.servName, err)
+				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete reply file failed")
 				return
 			}
 		}
-	}()
+	}(ctx)
+	// 后台同步
+	go func(ctx context.Context) {
+		// redis的replies-1
+		if err := s.replyRepo.DecreasePostReplies(ctx, reply.PostID); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post replies failed")
+		}
+	}(ctx)
 	return syserror.NoError
 }
 
 // 给回帖点赞
 func (s *replyService) LikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	var replyLike = model.ReplyLike{
 		UserID:  userID,
 		ReplyID: replyID,
@@ -395,7 +413,10 @@ func (s *replyService) LikeOneReply(ctx context.Context, replyID, userID int64) 
 		if utils.IsPgDuplicateKey(err) {
 			return syserror.DuplicateError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		if utils.IsPgViolateForeignKey(err) {
+			return syserror.NotFoundError
+		}
+		logger.WithError(err).Error("create reply like failed")
 		return syserror.InternalError
 	}
 	return syserror.NoError
@@ -403,23 +424,14 @@ func (s *replyService) LikeOneReply(ctx context.Context, replyID, userID int64) 
 
 // 取消点赞
 func (s *replyService) CancelLikeOneReply(ctx context.Context, replyID, userID int64) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	err := s.replyRepo.DeleteReplyLike(userID, replyID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("delete reply like failed")
 		return syserror.InternalError
 	}
 	return syserror.NoError
-}
-
-// 查询用户是否点赞过指定回复
-func (s *replyService) HasLikedReply(ctx context.Context, replyID, userID int64) (bool, syserror.Error) {
-	liked, err := s.replyRepo.HasReplyLike(userID, replyID)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return false, syserror.InternalError
-	}
-	return liked, syserror.NoError
 }

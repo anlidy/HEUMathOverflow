@@ -1,13 +1,13 @@
 package controller
 
 import (
+	"MathOverflow/internal/common/api"
 	common "MathOverflow/internal/common/model"
 	"MathOverflow/internal/common/utils"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/service"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -30,8 +30,8 @@ func (pc *ForumController) UploadTempFile(c *gin.Context) {
 	// 获取上传文件
 	rawFile, fileHeader, err := c.Request.FormFile("file")
 	if err != nil {
-		log.Printf("[%s] %v\n", pc.name, err)
-		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": "上传失败", "data": nil})
+		utils.WithContext(ctx).WithField("controller", pc.name).WithError(err).Error("parse upload file failed")
+		api.JSON(c).Code(http.StatusBadRequest).Message("上传失败").Send()
 		return
 	}
 	defer rawFile.Close()
@@ -39,7 +39,7 @@ func (pc *ForumController) UploadTempFile(c *gin.Context) {
 	// 判断文件类型
 	fileExt := filepath.Ext(fileHeader.Filename)
 	if !utils.IsAllowedFile(fileExt) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": "上传失败,不支持此文件格式", "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("上传失败,不支持此文件格式").Send()
 		return
 	}
 
@@ -61,9 +61,9 @@ func (pc *ForumController) UploadTempFile(c *gin.Context) {
 	tempUrl, sysErr := pc.forumServ.UploadFile(ctx, file)
 	switch sysErr {
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "上传失败", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("上传失败").Send()
 	case syserror.NoError:
-		c.JSON(http.StatusOK, gin.H{"message": "上传成功", "code": http.StatusOK, "data": gin.H{"image_url": tempUrl}})
+		api.JSON(c).Code(http.StatusOK).Message("上传成功").Data(gin.H{"image_url": tempUrl}).Send()
 	}
 }
 

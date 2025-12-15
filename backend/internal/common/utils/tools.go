@@ -28,3 +28,12 @@ func IsPgDuplicateKey(err error) bool {
 	}
 	return false
 }
+
+// // 判断是否为外键约束错误
+func IsPgViolateForeignKey(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23503"
+	}
+	return false
+}

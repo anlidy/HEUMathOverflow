@@ -3,6 +3,8 @@ package main
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/middleware"
+	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/user-service/controller"
 	"MathOverflow/internal/user-service/model"
 	"MathOverflow/internal/user-service/repository"
@@ -11,7 +13,6 @@ import (
 	pb "MathOverflow/proto/user"
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -22,13 +23,15 @@ import (
 )
 
 func main() {
+	utils.InitLogger("user-service")
+
 	dir, _ := os.Getwd()
-	fmt.Println("当前工作目录:", dir)
+	utils.Logger().WithField("working_dir", dir).Info("user-service starting")
 	// 加载配置
 
 	cfg, err := config.LoadConfig("user.yaml")
 	if err != nil {
-		panic(err)
+		utils.Logger().WithError(err).Fatal("failed to load user.yaml")
 	}
 	// 初始化pgsql数据库
 	pg, err := client.InitPostgres(cfg.Postgres)
@@ -74,26 +77,28 @@ func main() {
 		go func() {
 			<-ctx.Done()
 			srv.Shutdown(context.Background())
-			log.Println("User Service Exited.")
+			utils.Logger().Info("User Service Exited.")
 		}()
-		log.Println("User Service is running...")
+		utils.Logger().Info("User Service is running...")
 		return srv.ListenAndServe()
 	})
 
 	eg.Go(func() error {
 		lis, _ := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPC.ExposePort))
-		grpcServer := grpc.NewServer()
+		grpcServer := grpc.NewServer(
+			grpc.UnaryInterceptor(middleware.UnaryServerTraceInterceptor()),
+		)
 		pb.RegisterUserServiceServer(grpcServer, &userServer)
 		go func() {
 			<-ctx.Done()
 			grpcServer.GracefulStop()
-			log.Println("User GRPC Exited.")
+			utils.Logger().Info("User GRPC Exited.")
 		}()
-		log.Printf("User GRPC is running at %d ...\n", cfg.GRPC.ExposePort)
+		utils.Logger().WithField("grpc_port", cfg.GRPC.ExposePort).Info("User GRPC is running...")
 		return grpcServer.Serve(lis)
 	})
 
 	if err := eg.Wait(); err != nil {
-		log.Println("User服务异常退出:", err)
+		utils.Logger().WithError(err).Error("User服务异常退出")
 	}
 }

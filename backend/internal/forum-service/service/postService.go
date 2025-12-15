@@ -3,6 +3,7 @@ package service
 import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/event"
 	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
@@ -12,9 +13,9 @@ import (
 	userpb "MathOverflow/proto/user"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lib/pq"
 	"github.com/minio/minio-go/v7"
@@ -25,17 +26,15 @@ import (
 
 type PostService interface {
 	CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error)
-	GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error)
-	GetManyPosts(ctx context.Context, offset, limit int, order model.OrderBy) ([]response.MultiPostData, syserror.Error)
+	GetOnePost(ctx context.Context, postID, userID int64) (*response.UserInfo, *response.PostData, syserror.Error)
+	GetManyPosts(ctx context.Context, page, limit int, order model.OrderBy) ([]response.MultiPostData, syserror.Error)
 	UpdateOnePost(ctx context.Context, userID int64, postID int64, req request.PostUpdate) syserror.Error
 	DeleteOnePost(ctx context.Context, postID, userID int64, role int) syserror.Error
 	LikeOnePost(ctx context.Context, postID, userID int64) syserror.Error
 	CancelLikeOnePost(ctx context.Context, postID, userID int64) syserror.Error
-	HasLikedPost(ctx context.Context, postID, userID int64) (bool, syserror.Error)
 	StarOnePost(ctx context.Context, postID, userID int64) syserror.Error
 	CancelStarOnePost(ctx context.Context, postID, userID int64) syserror.Error
-	HasStarredPost(ctx context.Context, postID, userID int64) (bool, syserror.Error)
-	GetUserStarredPosts(ctx context.Context, userID int64, offset, limit int) ([]response.MultiPostData, syserror.Error)
+	GetUserStarredPosts(ctx context.Context, userID int64, page, limit int) ([]response.MultiPostData, int64, syserror.Error)
 }
 
 type postService struct {
@@ -45,6 +44,7 @@ type postService struct {
 	servName       string
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
+	mq             *client.RabbitMQClient
 }
 
 func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
@@ -69,9 +69,10 @@ func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
 	return s.userClient, nil
 }
 
-func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
+func NewPostService(cfg config.Config, rabbit *client.RabbitMQClient, postRepo repository.PostRepo, fileRepo repository.FileRepo) PostService {
 	return &postService{
 		cfg:      cfg,
+		mq:       rabbit,
 		postRepo: postRepo,
 		fileRepo: fileRepo,
 		servName: "Post-Service",
@@ -80,6 +81,37 @@ func NewPostService(cfg config.Config, postRepo repository.PostRepo, fileRepo re
 
 // 创建新帖子
 func (s *postService) CreateNewPost(ctx context.Context, userID int64, req request.PostCreate) (int64, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
+	// 获取grpc client
+	userClient, err := s.getUserClient()
+	if err != nil {
+		logger.WithError(err).Error("get user client failed")
+		return 0, syserror.NetworkError
+	}
+	// 调用 UserService
+	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: userID})
+	if err != nil {
+		logger.WithError(err).Error("call GetUserInfo failed")
+		st, ok := status.FromError(err)
+		if !ok {
+			logger.WithError(err).Error("non gRPC error when calling GetUserInfo")
+			return 0, syserror.NetworkError
+		}
+		switch st.Code() {
+		case codes.Internal:
+			return 0, syserror.InternalError
+		case codes.NotFound:
+			return 0, syserror.NotFoundError
+		case codes.Canceled:
+			return 0, syserror.NetworkError
+		default:
+			logger.WithField("code", st.Code()).WithError(err).Error("grpc request failed when calling GetUserInfo")
+			return 0, syserror.InternalError
+		}
+	}
+	// 获取作者名称
+	authorName := resp.Username
+
 	// 生成帖子id
 	var postID = utils.GenerateSnowflakeID()
 
@@ -94,14 +126,14 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return -1, syserror.ResourceExpiredError
 			}
-			log.Printf("[%s] %v\n", s.servName, err)
+			logger.WithError(err).Error("promote post image file failed")
 			return -1, syserror.InternalError
 		}
 		images = append(images, newUrl)
 	}
 
 	// 创建帖子数据
-	var post = &model.Post{
+	var post = model.Post{
 		ID:        postID,
 		AuthorID:  userID,
 		Title:     req.Title,
@@ -109,43 +141,58 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		ImageURLs: images,
 		Tags:      pq.StringArray(req.Tags),
 		Status:    model.Unanswered,
+		CreatedAt: time.Now(),
 	}
-	err := s.postRepo.CreatePost(post)
+	err = s.postRepo.CreatePost(&post)
 	if err != nil {
 		if utils.IsPgDuplicateKey(err) {
 			return -1, syserror.DuplicateError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("create post failed")
 		return -1, syserror.InternalError
 	}
+
+	// 发布帖子创建消息
+	var payload = event.ForumPostPayload{
+		PostID:     postID,
+		AuthorID:   post.AuthorID,
+		AuthorName: authorName, // 创建时需要存一次用户名
+		Title:      post.Title,
+		Content:    post.Content,
+		Tags:       post.Tags,
+		Status:     int(post.Status),
+		CreatedAt:  post.CreatedAt,
+	}
+	event.PublishPostEvent(s.mq, event.ForumPostCreated, payload)
 	return postID, syserror.NoError
 }
 
 // 获取一条帖子
-func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
+func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*response.UserInfo, *response.PostData, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询帖子信息
-	post, err := s.postRepo.FindPostByID(postID)
+	post, err := s.postRepo.FindPostDetail(postID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find post detail failed")
 		return nil, nil, syserror.InternalError
 	}
 
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("get user client failed")
 		return nil, nil, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: post.AuthorID})
 	if err != nil {
-		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call GetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
+			logger.WithError(err).Error("non gRPC error when calling GetUserInfo")
 			return nil, nil, syserror.NetworkError
 		}
 		switch st.Code() {
@@ -156,7 +203,7 @@ func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.U
 		case codes.Canceled:
 			return nil, nil, syserror.NetworkError
 		default:
-			log.Printf("GRPC请求失败! code:%v err:%v\n", st.Code(), err)
+			logger.WithField("code", st.Code()).WithError(err).Error("grpc request failed when calling GetUserInfo")
 			return nil, nil, syserror.InternalError
 		}
 	}
@@ -170,18 +217,30 @@ func (s *postService) GetOnePost(ctx context.Context, postID int64) (*response.U
 
 	// 聚合返回查询结果
 	postData := &response.PostData{
-		Post: post,
+		Post:    post.Post,
+		Liked:   post.Liked,
+		Starred: post.Starred,
 	}
+
+	// 后台完成同步
+	go func(ctx context.Context) {
+		// redis的views+1
+		if err := s.postRepo.IncreasePostStat(ctx, postID, "views"); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post views failed")
+		}
+	}(ctx)
 
 	return userInfo, postData, syserror.NoError
 }
 
 // 批量获取帖子
-func (s *postService) GetManyPosts(ctx context.Context, offset, limit int, order model.OrderBy) ([]response.MultiPostData, syserror.Error) {
+func (s *postService) GetManyPosts(ctx context.Context, page, limit int, order model.OrderBy) ([]response.MultiPostData, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询帖子信息
+	offset := (page - 1) * limit // 计算偏移量
 	posts, err := s.postRepo.FindManyPosts(offset, limit, order)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find many posts failed")
 		return nil, syserror.InternalError
 	}
 	// 构建查询的userID数组
@@ -192,16 +251,16 @@ func (s *postService) GetManyPosts(ctx context.Context, offset, limit int, order
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("get user client failed")
 		return nil, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
 	if err != nil {
-		log.Printf("[%s] 调用 BatchGetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call BatchGetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
+			logger.WithError(err).Error("non gRPC error when calling BatchGetUserInfo")
 			return nil, syserror.NetworkError
 		}
 		switch st.Code() {
@@ -210,7 +269,7 @@ func (s *postService) GetManyPosts(ctx context.Context, offset, limit int, order
 		case codes.Canceled:
 			return nil, syserror.NetworkError
 		default:
-			log.Println(st.Message())
+			logger.WithField("grpc_message", st.Message()).Warn("grpc error when calling BatchGetUserInfo")
 		}
 	}
 	// 请求成功
@@ -232,13 +291,14 @@ func (s *postService) GetManyPosts(ctx context.Context, offset, limit int, order
 
 // 更新一条帖子
 func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID int64, req request.PostUpdate) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询该条帖子
-	post, err := s.postRepo.FindPostByID(postID)
+	post, err := s.postRepo.FindPostDetail(postID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find post detail failed")
 		return syserror.InternalError
 	}
 	// 验证当前登录的用户是否为该帖子的作者
@@ -262,7 +322,7 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return syserror.ResourceExpiredError
 			}
-			log.Printf("[%s] %v\n", s.servName, err)
+			logger.WithError(err).Error("promote post image file failed")
 			return syserror.InternalError
 		}
 		// 完成添加
@@ -271,58 +331,73 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 	}
 
 	// 保存帖子信息
-	_, err = s.postRepo.UpdatePost(&post)
+	_, err = s.postRepo.UpdatePost(&post.Post)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("update post failed")
 		return syserror.InternalError
 	}
 
+	// 发布事件
+	var payload = event.ForumPostPayload{
+		PostID:    postID,
+		Title:     post.Title,
+		Content:   post.Content,
+		Tags:      post.Tags,
+		Status:    int(post.Status),
+		CreatedAt: post.CreatedAt,
+		Views:     post.Views,
+		Likes:     post.Likes,
+		Stars:     post.Stars,
+		Replies:   post.Replies,
+	}
+	event.PublishPostEvent(s.mq, event.ForumPostUpdated, payload)
+
 	// 后台删除图片
-	go func() {
+	go func(ctx context.Context) {
 		for _, delUrl := range req.DeleteImageURLs {
 			filename := strings.TrimPrefix(delUrl, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			err := s.fileRepo.DeleteFile(ctx, filename)
-			if err != nil {
+			if err := s.fileRepo.DeleteFile(ctx, filename); err != nil {
 				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					log.Printf("[Minio] 找不到文件: %s\n", filename)
+					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting post file")
 					continue
 				}
-				log.Printf("[%s] %v\n", s.servName, err)
+				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete post file failed")
 				return
 			}
 		}
-	}()
+	}(ctx)
 	return syserror.NoError
 }
 
 // 删除一条帖子
 func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, role int) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	// 查询该条帖子
-	post, err := s.postRepo.FindPostByID(postID)
+	post, err := s.postRepo.FindPostDetail(postID, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("find post detail failed")
 		return syserror.InternalError
 	}
 	// 获取帖子作者信息
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("get user client failed")
 		return syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: post.AuthorID})
 	if err != nil {
-		log.Printf("[%s] 调用 GetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call GetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
+			logger.WithError(err).Error("non gRPC error when calling GetUserInfo")
 			return syserror.NetworkError
 		}
 		switch st.Code() {
@@ -333,7 +408,7 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 		case codes.Canceled:
 			return syserror.NetworkError
 		default:
-			log.Printf("GRPC请求失败! code:%v err:%v\n", st.Code(), err)
+			logger.WithField("code", st.Code()).WithError(err).Error("grpc request failed when calling GetUserInfo")
 			return syserror.InternalError
 		}
 	}
@@ -352,32 +427,36 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("delete post failed")
 		return syserror.InternalError
 	}
 
+	// 发布事件
+	var payload = event.ForumPostPayload{PostID: postID}
+	event.PublishPostEvent(s.mq, event.ForumPostDeleted, payload)
+
 	// 后台删除帖子包含的文件
-	go func() {
+	go func(ctx context.Context) {
 		urls := post.ImageURLs
 		for _, url := range urls {
 			filename := strings.TrimPrefix(url, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			err := s.fileRepo.DeleteFile(ctx, url)
-			if err != nil {
+			if err := s.fileRepo.DeleteFile(ctx, url); err != nil {
 				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					log.Printf("[Minio] 找不到文件: %s\n", filename)
+					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting post file")
 					continue
 				}
-				log.Printf("[%s] %v\n", s.servName, err)
+				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete post file failed")
 				return
 			}
 		}
-	}()
+	}(ctx)
 
 	return syserror.NoError
 }
 
 // 给帖子点赞
 func (s *postService) LikeOnePost(ctx context.Context, postID, userID int64) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	var postLike = model.PostLike{
 		UserID: userID,
 		PostID: postID,
@@ -387,87 +466,107 @@ func (s *postService) LikeOnePost(ctx context.Context, postID, userID int64) sys
 		if utils.IsPgDuplicateKey(err) {
 			return syserror.DuplicateError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		if utils.IsPgViolateForeignKey(err) {
+			return syserror.NotFoundError
+		}
+		logger.WithError(err).Error("create post like failed")
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func(ctx context.Context) {
+		// redis的likes+1
+		if err := s.postRepo.IncreasePostStat(ctx, postID, "likes"); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post likes failed")
+		}
+	}(ctx)
 	return syserror.NoError
 }
 
 // 取消点赞
 func (s *postService) CancelLikeOnePost(ctx context.Context, postID, userID int64) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	err := s.postRepo.DeletePostLike(userID, postID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("delete post like failed")
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func(ctx context.Context) {
+		// redis的likes-1
+		if err := s.postRepo.DecreasePostStat(ctx, postID, "likes"); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post likes failed")
+		}
+	}(ctx)
 	return syserror.NoError
-}
-
-// 查询用户是否点赞过指定帖子
-func (s *postService) HasLikedPost(ctx context.Context, postID, userID int64) (bool, syserror.Error) {
-	liked, err := s.postRepo.HasPostLike(userID, postID)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return false, syserror.InternalError
-	}
-	return liked, syserror.NoError
 }
 
 // / 收藏接口
 // 收藏帖子
 func (s *postService) StarOnePost(ctx context.Context, postID, userID int64) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	var postStar = model.PostStar{
+		ID:     utils.GenerateSnowflakeID(),
 		UserID: userID,
-		PostID: postID,
+		PostID: &postID,
 	}
 	err := s.postRepo.CreatePostStar(&postStar)
 	if err != nil {
 		if utils.IsPgDuplicateKey(err) {
 			return syserror.DuplicateError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		if utils.IsPgViolateForeignKey(err) {
+			return syserror.NotFoundError
+		}
+		logger.WithError(err).Error("create post star failed")
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func(ctx context.Context) {
+		// redis的stars+1
+		if err := s.postRepo.IncreasePostStat(ctx, postID, "stars"); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post stars failed")
+		}
+	}(ctx)
 	return syserror.NoError
 }
 
 // 取消收藏帖子
 func (s *postService) CancelStarOnePost(ctx context.Context, postID, userID int64) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
 	err := s.postRepo.DeletePostStar(userID, postID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
-		log.Printf("[%s] %v\n", s.servName, err)
+		logger.WithError(err).Error("delete post star failed")
 		return syserror.InternalError
 	}
+	// 后台完成同步
+	go func(ctx context.Context) {
+		// redis的stars-1
+		if err := s.postRepo.DecreasePostStat(ctx, postID, "stars"); err != nil {
+			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post stars failed")
+		}
+	}(ctx)
 	return syserror.NoError
 }
 
-// 查询用户是否收藏过指定帖子
-func (s *postService) HasStarredPost(ctx context.Context, postID, userID int64) (bool, syserror.Error) {
-	starred, err := s.postRepo.HasPostStar(userID, postID)
-	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return false, syserror.InternalError
-	}
-	return starred, syserror.NoError
-}
-
 // 查询用户收藏的帖子（分页）
-func (s *postService) GetUserStarredPosts(ctx context.Context, userID int64, offset, limit int) ([]response.MultiPostData, syserror.Error) {
-	posts, err := s.postRepo.FindUserStarredPosts(userID, offset, limit)
+func (s *postService) GetUserStarredPosts(ctx context.Context, userID int64, page, limit int) ([]response.MultiPostData, int64, syserror.Error) {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
+	offset := (page - 1) * limit // 计算偏移量
+	posts, total, err := s.postRepo.FindUserStarredPosts(userID, offset, limit)
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return nil, syserror.InternalError
+		logger.WithError(err).Error("find user starred posts failed")
+		return nil, 0, syserror.InternalError
 	}
 
 	// 如果没有收藏，直接返回空列表
 	if len(posts) == 0 {
-		return []response.MultiPostData{}, syserror.NoError
+		return []response.MultiPostData{}, 0, syserror.NoError
 	}
 
 	// 构建查询的userID数组
@@ -479,26 +578,26 @@ func (s *postService) GetUserStarredPosts(ctx context.Context, userID int64, off
 	// 获取grpc client
 	userClient, err := s.getUserClient()
 	if err != nil {
-		log.Printf("[%s] %v\n", s.servName, err)
-		return nil, syserror.NetworkError
+		logger.WithError(err).Error("get user client failed")
+		return nil, 0, syserror.NetworkError
 	}
 	// 调用 UserService
 	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
 	if err != nil {
-		log.Printf("[%s] 调用 BatchGetUserInfo 失败: %v\n", s.servName, err)
+		logger.WithError(err).Error("call BatchGetUserInfo failed")
 		st, ok := status.FromError(err)
 		if !ok {
-			log.Println("非 gRPC 错误:", err)
-			return nil, syserror.NetworkError
+			logger.WithError(err).Error("non gRPC error when calling BatchGetUserInfo")
+			return nil, 0, syserror.NetworkError
 		}
 		switch st.Code() {
 		case codes.Internal:
-			return nil, syserror.InternalError
+			return nil, 0, syserror.InternalError
 		case codes.Canceled:
-			return nil, syserror.NetworkError
+			return nil, 0, syserror.NetworkError
 		default:
-			log.Println(st.Message())
-			return nil, syserror.InternalError
+			logger.WithField("grpc_message", st.Message()).Warn("grpc error when calling BatchGetUserInfo")
+			return nil, 0, syserror.InternalError
 		}
 	}
 
@@ -515,5 +614,5 @@ func (s *postService) GetUserStarredPosts(ctx context.Context, userID int64, off
 		}
 		postDatas[i].PostData.Post = posts[i]
 	}
-	return postDatas, syserror.NoError
+	return postDatas, total, syserror.NoError
 }

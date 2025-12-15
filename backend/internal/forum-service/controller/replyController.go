@@ -1,10 +1,11 @@
 package controller
 
 import (
+	"MathOverflow/internal/common/api"
+	"MathOverflow/internal/common/utils"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
 	"MathOverflow/internal/forum-service/service"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -24,7 +25,7 @@ func NewReplyController(replyServ service.ReplyService) ReplyController {
 func (rc *ReplyController) CreateNewReply(c *gin.Context) {
 	var req request.ReplyCreate
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "发布失败,数据格式有误", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("发布失败,数据格式有误").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -32,76 +33,79 @@ func (rc *ReplyController) CreateNewReply(c *gin.Context) {
 	replyID, syserr := rc.replyServ.CreateNewReply(ctx, userID, req)
 	switch syserr {
 	case syserror.ResourceExpiredError:
-		c.JSON(http.StatusGone, gin.H{"message": "附件已失效,请重新上传", "code": http.StatusGone, "data": nil})
+		api.JSON(c).Code(http.StatusGone).Message("附件已失效,请重新上传").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "回帖发布失败", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("回帖发布失败").Send()
 		return
 	case syserror.DuplicateError:
-		c.JSON(http.StatusConflict, gin.H{"message": "回帖已经发布", "code": http.StatusConflict, "data": nil})
+		api.JSON(c).Code(http.StatusConflict).Message("回帖已经发布").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "回帖发布成功", "code": http.StatusOK, "data": gin.H{"reply_id": strconv.FormatInt(replyID, 10)}})
+	api.JSON(c).Code(http.StatusOK).Message("回帖发布成功").Data(gin.H{"reply_id": strconv.FormatInt(replyID, 10)}).Send()
 }
 
 // 获取回帖
 func (rc *ReplyController) GetOneReply(c *gin.Context) {
+	ctx := c.Request.Context()
 	replyIDStr := c.Param("replyID")
 	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的回帖id").Send()
 		return
 	}
-	var ctx = c.Request.Context()
-	userInfo, replyData, syserr := rc.replyServ.GetOneReply(ctx, replyID)
+	var userID = c.GetInt64("userID")
+	userInfo, replyData, syserr := rc.replyServ.GetOneReply(ctx, replyID, userID)
 	switch syserr {
 	case syserror.NetworkError:
-		log.Printf("[%s] gRPC网络异常: %v\n", rc.name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
+		utils.WithContext(ctx).WithField("controller", rc.name).WithError(err).Error("gRPC network error in GetOneReply")
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		log.Printf("[%s] %v\n", rc.name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError, "data": nil})
+		utils.WithContext(ctx).WithField("controller", rc.name).WithError(err).Error("internal error in GetOneReply")
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器异常,请稍后再试").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到该用户的回帖", "code": http.StatusNotFound, "data": nil})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到该用户的回帖").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": gin.H{
+	api.JSON(c).Code(http.StatusOK).Message("请求成功").Data(gin.H{
 		"user_info": userInfo,
 		"post_data": replyData,
-	}})
+	}).Send()
 }
 
 // 获取分页回帖
 func (rc *ReplyController) BatchGetReply(c *gin.Context) {
 	var replyIDStr = c.Param("postID")
 	postID, err := strconv.ParseInt(replyIDStr, 10, 64)
+	var userID = c.GetInt64("userID")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "获取失败,无效的帖子id", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("获取失败,无效的帖子id").Send()
 		return
 	}
 	// 获取偏移量
-	var offsetStr, limitStr = c.Query("offset"), c.Query("limit")
-	offset, _ := strconv.Atoi(offsetStr) // 默认取0
+	var pageStr, limitStr = c.Query("page"), c.Query("page_size")
+	page, _ := strconv.Atoi(pageStr)
 	limit, _ := strconv.Atoi(limitStr)
+	page = max(page, 1) // 从1开始
 	if limit == 0 {
 		limit = 20 // 默认取20条
 	}
 	var ctx = c.Request.Context()
-	multiData, syserr := rc.replyServ.GetManyReplies(ctx, postID, offset, limit)
+	multiData, total, syserr := rc.replyServ.GetManyReplies(ctx, postID, userID, page, limit)
 	switch syserr {
 	case syserror.NetworkError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器网络异常,请稍后重试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError, "data": nil})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器异常,请稍后再试").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到指定帖子的回帖", "code": http.StatusNotFound, "data": nil})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到指定帖子的回帖").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "请求成功", "code": http.StatusOK, "data": multiData})
+	api.JSON(c).Code(http.StatusOK).Message("请求成功").Data(multiData).Pagination(page, limit, int(total)).Send()
 }
 
 // 更新回帖
@@ -109,12 +113,12 @@ func (rc *ReplyController) UpdateOneReply(c *gin.Context) {
 	var replyIDStr = c.Param("replyID")
 	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的回帖id").Send()
 		return
 	}
 	var req request.ReplyUpdate
 	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "更新失败,数据格式有误", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("更新失败,数据格式有误").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -122,50 +126,50 @@ func (rc *ReplyController) UpdateOneReply(c *gin.Context) {
 	syserr := rc.replyServ.UpdateOneReply(ctx, userID, replyID, req)
 	switch syserr {
 	case syserror.PermissionDeniedError:
-		c.JSON(http.StatusUnauthorized, gin.H{"message": "您无权修改他人的回帖", "code": http.StatusUnauthorized})
+		api.JSON(c).Code(http.StatusUnauthorized).Message("您无权修改他人的回帖").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要修改的回帖", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要修改的回帖").Send()
 		return
 	case syserror.ResourceExpiredError:
-		c.JSON(http.StatusGone, gin.H{"message": "附件资源已过期,请重新上传", "code": http.StatusGone})
+		api.JSON(c).Code(http.StatusGone).Message("附件资源已过期,请重新上传").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "更新失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("更新失败").Send()
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "回帖更新成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("回帖更新成功").Send()
 }
 
 // 删除一条回帖
 func (rc *ReplyController) DeleteOneReply(c *gin.Context) {
+	ctx := c.Request.Context()
 	replyIDStr := c.Param("replyID")
 	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest, "data": nil})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的回帖id").Send()
 		return
 	}
-	var ctx = c.Request.Context()
 	var userID = c.GetInt64("userID")
 	var role = c.GetInt("role")
 	syserr := rc.replyServ.DeleteOneReply(ctx, replyID, userID, role)
 	switch syserr {
 	case syserror.PermissionDeniedError:
-		c.JSON(http.StatusUnauthorized, gin.H{"message": "您无权删除他人的回帖", "code": http.StatusUnauthorized})
+		api.JSON(c).Code(http.StatusUnauthorized).Message("您无权删除他人的回帖").Send()
 		return
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "找不到要删除的回帖", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要删除的回帖").Send()
 		return
 	case syserror.NetworkError:
-		log.Printf("[%s] %v\n", rc.name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "服务器异常,请稍后再试", "code": http.StatusInternalServerError})
+		utils.WithContext(ctx).WithField("controller", rc.name).WithError(err).Error("network error in DeleteOneReply")
+		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器异常,请稍后再试").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "删除失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("删除失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "删除成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("删除成功").Send()
 }
 
 // 点赞接口
@@ -174,7 +178,7 @@ func (pc *ReplyController) LikeOneReply(c *gin.Context) {
 	var replyIDStr = c.Param("replyID")
 	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的回帖id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -182,13 +186,16 @@ func (pc *ReplyController) LikeOneReply(c *gin.Context) {
 	syserr := pc.replyServ.LikeOneReply(ctx, replyID, userID)
 	switch syserr {
 	case syserror.DuplicateError:
-		c.JSON(http.StatusConflict, gin.H{"message": "您已点过赞", "code": http.StatusConflict})
+		api.JSON(c).Code(http.StatusConflict).Message("您已点过赞").Send()
+		return
+	case syserror.NotFoundError:
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要点赞的回帖").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "点赞成功", "code": http.StatusOK})
+	api.JSON(c).Code(http.StatusOK).Message("点赞成功").Send()
 }
 
 // 取消点赞
@@ -196,7 +203,7 @@ func (pc *ReplyController) CancelLikeOneReply(c *gin.Context) {
 	var replyIDStr = c.Param("replyID")
 	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest})
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的回帖id").Send()
 		return
 	}
 	var ctx = c.Request.Context()
@@ -204,29 +211,11 @@ func (pc *ReplyController) CancelLikeOneReply(c *gin.Context) {
 	syserr := pc.replyServ.CancelLikeOneReply(ctx, replyID, userID)
 	switch syserr {
 	case syserror.NotFoundError:
-		c.JSON(http.StatusNotFound, gin.H{"message": "未点赞过该回帖", "code": http.StatusNotFound})
+		api.JSON(c).Code(http.StatusNotFound).Message("未点赞过该回帖").Send()
 		return
 	case syserror.InternalError:
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "操作失败", "code": http.StatusInternalServerError})
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "取消点赞成功", "code": http.StatusOK})
-}
-
-// 查询当前用户是否点赞过回复
-func (pc *ReplyController) GetReplyLikeStatus(c *gin.Context) {
-	replyIDStr := c.Param("replyID")
-	replyID, err := strconv.ParseInt(replyIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "无效的回帖id", "code": http.StatusBadRequest})
-		return
-	}
-	ctx := c.Request.Context()
-	userID := c.GetInt64("userID")
-	liked, syserr := pc.replyServ.HasLikedReply(ctx, replyID, userID)
-	if syserr == syserror.InternalError {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "查询失败", "code": http.StatusInternalServerError})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "查询成功", "code": http.StatusOK, "data": gin.H{"liked": liked}})
+	api.JSON(c).Code(http.StatusOK).Message("取消点赞成功").Send()
 }
