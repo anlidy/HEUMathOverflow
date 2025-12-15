@@ -5,7 +5,7 @@ import { usePostsStore } from '@/stores/usePostsStore'
 import ContentRenderer from '@/features/editor/components/ContentRenderer.vue'
 import { getAvatarUrl } from '@/utils/avatar'
 import { ArrowBackOutline, ChatboxOutline, CheckmarkCircle, ThumbsUpOutline } from '@vicons/ionicons5'
-import { useMessage } from 'naive-ui'
+import { useAppMessage } from '@/composables/useMessage'
 import { isReplyCertified, getRoleText } from '@/types'
 
 // 日期格式化
@@ -21,7 +21,7 @@ const formatDate = (dateStr: string) => {
 
 const route = useRoute()
 const router = useRouter()
-const message = useMessage()
+const { showSuccess, showWarning, showError } = useAppMessage()
 const postsStore = usePostsStore()
 
 const postId = route.params.id as string
@@ -39,7 +39,7 @@ const fetchPost = async () => {
         await postsStore.getPostDetail(postId)
     } catch (e) {
         console.error(e)
-        message.error('获取帖子失败')
+        showError('获取帖子失败')
     } finally {
         loading.value = false
     }
@@ -50,13 +50,13 @@ const fetchReplies = async () => {
         await postsStore.getReplies(postId, { limit: 50 })
     } catch (e) {
         console.error(e)
-        message.error('获取评论失败')
+        showError('获取评论失败')
     }
 }
 
 const handleSubmitReply = async () => {
     if (!replyContent.value || replyContent.value.trim() === '') {
-        message.warning('请输入评论内容')
+        showWarning('请输入评论内容')
         return
     }
 
@@ -65,11 +65,11 @@ const handleSubmitReply = async () => {
         await postsStore.createReply(postId, {
             content: replyContent.value,
         })
-        message.success('评论成功')
+        showSuccess('评论成功')
         replyContent.value = ''
     } catch (e) {
         console.error(e)
-        message.error('评论失败')
+        showError('评论失败')
     } finally {
         submitting.value = false
     }

@@ -2,11 +2,14 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/useUserStore'
-import type { FormInst, FormRules } from 'naive-ui'
-import { PersonOutline, MailOutline, LockClosedOutline, CameraOutline, SettingsOutline } from '@vicons/ionicons5'
+import { PersonOutline, MailOutline, LockClosedOutline, SettingsOutline } from '@vicons/ionicons5'
 import { useAppMessage } from '@/composables/useMessage'
 import type { AppError } from '@/utils/errorHandler'
 import { getAvatarUrl } from '@/utils/avatar'
+import BaseInput from '@/components/ui/BaseInput.vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
+import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -25,9 +28,7 @@ onMounted(() => {
     }
 })
 
-// 表单引用和状态
-const formRef = ref<FormInst | null>(null)
-const passwordFormRef = ref<FormInst | null>(null)
+// 表单状态
 const loading = ref(false)
 const passwordLoading = ref(false)
 const showPasswordDialog = ref(false)
@@ -44,38 +45,67 @@ const passwordFormData = reactive({
     confirm_new_password: '',
 })
 
+// 表单错误
+const formErrors = reactive({
+    username: '',
+})
+
+const passwordFormErrors = reactive({
+    old_password: '',
+    new_password: '',
+    confirm_new_password: '',
+})
+
 // 头像上传相关
 const avatarFileInput = ref<HTMLInputElement | null>(null)
 const avatarUploading = ref(false)
 const avatarPreview = ref<string | null>(null)
 
-// 表单验证规则
-const rules: FormRules = {
-    username: [
-        { required: true, message: '请输入用户名', trigger: ['blur', 'input'] },
-        { min: 3, max: 50, message: '用户名长度应在3-50个字符之间', trigger: ['blur', 'input'] },
-    ],
+// 表单验证
+const validateForm = () => {
+    let isValid = true
+    formErrors.username = ''
+
+    if (!formData.username.trim()) {
+        formErrors.username = '请输入用户名'
+        isValid = false
+    } else if (formData.username.length < 3 || formData.username.length > 50) {
+        formErrors.username = '用户名长度应在3-50个字符之间'
+        isValid = false
+    }
+
+    return isValid
 }
 
-// 密码表单验证规则
-const passwordRules: FormRules = {
-    old_password: [{ required: true, message: '请输入当前密码', trigger: ['blur', 'input'] }],
-    new_password: [
-        { required: true, message: '请输入新密码', trigger: ['blur', 'input'] },
-        { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: ['blur', 'input'] },
-    ],
-    confirm_new_password: [
-        { required: true, message: '请再次输入新密码', trigger: ['blur', 'input'] },
-        {
-            validator: (_rule: any, value: string) => {
-                if (value && value !== passwordFormData.new_password) {
-                    return new Error('两次输入的新密码不一致')
-                }
-                return true
-            },
-            trigger: ['blur', 'input'],
-        },
-    ],
+// 密码表单验证
+const validatePasswordForm = () => {
+    let isValid = true
+    passwordFormErrors.old_password = ''
+    passwordFormErrors.new_password = ''
+    passwordFormErrors.confirm_new_password = ''
+
+    if (!passwordFormData.old_password) {
+        passwordFormErrors.old_password = '请输入当前密码'
+        isValid = false
+    }
+
+    if (!passwordFormData.new_password) {
+        passwordFormErrors.new_password = '请输入新密码'
+        isValid = false
+    } else if (passwordFormData.new_password.length < 6 || passwordFormData.new_password.length > 20) {
+        passwordFormErrors.new_password = '密码长度应在6-20个字符之间'
+        isValid = false
+    }
+
+    if (!passwordFormData.confirm_new_password) {
+        passwordFormErrors.confirm_new_password = '请再次输入新密码'
+        isValid = false
+    } else if (passwordFormData.confirm_new_password !== passwordFormData.new_password) {
+        passwordFormErrors.confirm_new_password = '两次输入的新密码不一致'
+        isValid = false
+    }
+
+    return isValid
 }
 
 // 初始化表单数据
@@ -91,17 +121,16 @@ onMounted(() => {
 })
 
 // 处理用户信息更新
-const handleUpdateProfile = async (e: Event) => {
-    e.preventDefault()
+const handleUpdateProfile = async () => {
+    if (!validateForm()) return
+
+    // 如果没有变化，不提交
+    if (formData.username === userInfo.value?.username) {
+        showSuccess('信息未发生变化')
+        return
+    }
+
     try {
-        await formRef.value?.validate()
-
-        // 如果没有变化，不提交
-        if (formData.username === userInfo.value?.username) {
-            showSuccess('信息未发生变化')
-            return
-        }
-
         loading.value = true
         await userStore.updateUserInfo({ username: formData.username })
         showSuccess('用户信息更新成功！')
@@ -186,7 +215,9 @@ const openPasswordDialog = () => {
     passwordFormData.old_password = ''
     passwordFormData.new_password = ''
     passwordFormData.confirm_new_password = ''
-    passwordFormRef.value?.restoreValidation()
+    passwordFormErrors.old_password = ''
+    passwordFormErrors.new_password = ''
+    passwordFormErrors.confirm_new_password = ''
 }
 
 // 关闭密码修改对话框
@@ -196,11 +227,11 @@ const closePasswordDialog = () => {
 
 // 处理密码修改
 const handleChangePassword = async () => {
+    if (!validatePasswordForm()) return
+
     try {
-        await passwordFormRef.value?.validate()
         passwordLoading.value = true
 
-        // confirm_new_password 仅前端校验，不发送到后端
         await userStore.changeUserPassword({
             old_password: passwordFormData.old_password,
             new_password: passwordFormData.new_password,
@@ -215,19 +246,6 @@ const handleChangePassword = async () => {
     } finally {
         passwordLoading.value = false
     }
-}
-
-// 格式化日期
-const formatDate = (date: string | Date | undefined) => {
-    if (!date) return '未知'
-    const d = new Date(date)
-    return d.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-    })
 }
 
 // 获取角色显示文本
@@ -249,8 +267,6 @@ const displayAvatar = computed(() => {
     if (avatarPreview.value) {
         return avatarPreview.value
     }
-    // 添加强制刷新参数，避免浏览器缓存旧头像
-    // 使用avatarRefreshKey确保每次更新都会刷新
     const url = getAvatarUrl(userInfo.value?.avatar_url)
     if (url.includes('?')) {
         return `${url}&_refresh=${avatarRefreshKey.value}`
@@ -289,7 +305,7 @@ watch(
                     ]"
                     @click="activeTab = 'profile'">
                     <div class="flex items-center gap-2">
-                        <n-icon :component="PersonOutline" :size="18" />
+                        <PersonOutline class="h-[18px] w-[18px]" />
                         <span>资料设置</span>
                     </div>
                 </button>
@@ -302,7 +318,7 @@ watch(
                     ]"
                     @click="activeTab = 'account'">
                     <div class="flex items-center gap-2">
-                        <n-icon :component="SettingsOutline" :size="18" />
+                        <SettingsOutline class="h-[18px] w-[18px]" />
                         <span>账号设置</span>
                     </div>
                 </button>
@@ -323,7 +339,7 @@ watch(
                     <div class="flex-1">
                         <p class="text-sm text-gray-600">支持 JPG、PNG 格式，大小不超过 5MB</p>
                         <div v-if="avatarUploading" class="mt-2 flex items-center gap-2 text-sm text-gray-500">
-                            <n-spin size="small" />
+                            <BaseSpinner size="small" />
                             <span>上传中...</span>
                         </div>
                     </div>
@@ -339,43 +355,31 @@ watch(
             <!-- 基本信息 -->
             <div class="rounded-lg border border-gray-200 bg-white p-6">
                 <h2 class="mb-4 text-lg font-medium text-gray-900">基本信息</h2>
-                <n-form
-                    ref="formRef"
-                    :model="formData"
-                    :rules="rules"
-                    size="large"
-                    @submit.prevent="handleUpdateProfile">
-                    <div class="space-y-4">
-                        <n-form-item path="username" label="用户名">
-                            <n-input
-                                v-model:value="formData.username"
-                                placeholder="请输入用户名"
-                                :input-props="{ autocomplete: 'username' }">
-                                <template #prefix>
-                                    <n-icon :component="PersonOutline" />
-                                </template>
-                            </n-input>
-                        </n-form-item>
+                <form @submit.prevent="handleUpdateProfile" class="space-y-4">
+                    <BaseInput
+                        v-model="formData.username"
+                        label="用户名"
+                        placeholder="请输入用户名"
+                        autocomplete="username"
+                        :error="formErrors.username">
+                        <template #prefix>
+                            <PersonOutline class="h-5 w-5" />
+                        </template>
+                    </BaseInput>
 
-                        <!-- 邮箱字段：后端暂未返回，显示为"暂未提供" -->
-                        <n-form-item label="邮箱">
-                            <n-input value="暂未提供" disabled>
-                                <template #prefix>
-                                    <n-icon :component="MailOutline" />
-                                </template>
-                            </n-input>
-                            <template #feedback>
-                                <span class="text-xs text-gray-400">邮箱信息暂不支持显示</span>
-                            </template>
-                        </n-form-item>
+                    <BaseInput model-value="暂未提供" label="邮箱" disabled>
+                        <template #prefix>
+                            <MailOutline class="h-5 w-5" />
+                        </template>
+                    </BaseInput>
+                    <p class="mt-1! text-xs text-gray-400">邮箱信息暂不支持显示</p>
 
-                        <div class="flex justify-end pt-2">
-                            <n-button type="primary" :loading="loading" @click="handleUpdateProfile">
-                                {{ loading ? '保存中...' : '保存更改' }}
-                            </n-button>
-                        </div>
+                    <div class="flex justify-end pt-2">
+                        <BaseButton :loading="loading" @click="handleUpdateProfile">
+                            {{ loading ? '保存中...' : '保存更改' }}
+                        </BaseButton>
                     </div>
-                </n-form>
+                </form>
             </div>
         </div>
 
@@ -397,7 +401,6 @@ watch(
                             <div class="mt-1 text-sm text-gray-500">{{ getRoleText(userInfo?.role) }}</div>
                         </div>
                     </div>
-                    <!-- 注册时间和最后登录：后端暂未返回这些字段 -->
                     <div class="flex items-center justify-between border-t border-gray-100 py-3">
                         <div>
                             <div class="text-sm font-medium text-gray-900">注册时间</div>
@@ -421,71 +424,61 @@ watch(
                         <div class="text-sm font-medium text-gray-900">登录密码</div>
                         <div class="mt-1 text-sm text-gray-500">用于登录您的账户</div>
                     </div>
-                    <n-button secondary @click="openPasswordDialog">
-                        <template #icon>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                        修改密码
-                    </n-button>
+                    <BaseButton variant="secondary" @click="openPasswordDialog">
+                        <LockClosedOutline class="h-4 w-4" />
+                        <span>修改密码</span>
+                    </BaseButton>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- 密码修改对话框 -->
-    <n-modal v-model:show="showPasswordDialog" preset="dialog" title="修改密码">
-        <n-form ref="passwordFormRef" :model="passwordFormData" :rules="passwordRules" size="large">
-            <div class="space-y-4">
-                <n-form-item path="old_password" label="当前密码">
-                    <n-input
-                        v-model:value="passwordFormData.old_password"
-                        type="password"
-                        placeholder="请输入当前密码"
-                        show-password-on="click"
-                        :input-props="{ autocomplete: 'current-password' }">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item path="new_password" label="新密码">
-                    <n-input
-                        v-model:value="passwordFormData.new_password"
-                        type="password"
-                        placeholder="请输入新密码"
-                        show-password-on="click"
-                        :input-props="{ autocomplete: 'new-password' }">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-                <n-form-item path="confirm_new_password" label="确认新密码">
-                    <n-input
-                        v-model:value="passwordFormData.confirm_new_password"
-                        type="password"
-                        placeholder="请再次输入新密码"
-                        show-password-on="click"
-                        :input-props="{ autocomplete: 'new-password' }">
-                        <template #prefix>
-                            <n-icon :component="LockClosedOutline" />
-                        </template>
-                    </n-input>
-                </n-form-item>
-            </div>
-        </n-form>
-        <template #action>
-            <div class="flex justify-end gap-2">
-                <n-button @click="closePasswordDialog">取消</n-button>
-                <n-button type="primary" :loading="passwordLoading" @click="handleChangePassword">确认修改</n-button>
-            </div>
-        </template>
-    </n-modal>
-</template>
+    <BaseModal v-model:show="showPasswordDialog" title="修改密码">
+        <form @submit.prevent="handleChangePassword" class="space-y-4">
+            <BaseInput
+                v-model="passwordFormData.old_password"
+                label="当前密码"
+                type="password"
+                placeholder="请输入当前密码"
+                autocomplete="current-password"
+                show-password-toggle
+                :error="passwordFormErrors.old_password">
+                <template #prefix>
+                    <LockClosedOutline class="h-5 w-5" />
+                </template>
+            </BaseInput>
 
-<style scoped>
-:deep(.n-form-item-label) {
-    font-weight: 500;
-    color: #374151;
-}
-</style>
+            <BaseInput
+                v-model="passwordFormData.new_password"
+                label="新密码"
+                type="password"
+                placeholder="请输入新密码"
+                autocomplete="new-password"
+                show-password-toggle
+                :error="passwordFormErrors.new_password">
+                <template #prefix>
+                    <LockClosedOutline class="h-5 w-5" />
+                </template>
+            </BaseInput>
+
+            <BaseInput
+                v-model="passwordFormData.confirm_new_password"
+                label="确认新密码"
+                type="password"
+                placeholder="请再次输入新密码"
+                autocomplete="new-password"
+                show-password-toggle
+                :error="passwordFormErrors.confirm_new_password">
+                <template #prefix>
+                    <LockClosedOutline class="h-5 w-5" />
+                </template>
+            </BaseInput>
+        </form>
+
+        <template #footer>
+            <BaseButton variant="secondary" @click="closePasswordDialog">取消</BaseButton>
+            <BaseButton :loading="passwordLoading" @click="handleChangePassword">确认修改</BaseButton>
+        </template>
+    </BaseModal>
+</template>

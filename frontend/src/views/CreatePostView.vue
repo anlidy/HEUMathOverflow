@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { useAppMessage } from '@/composables/useMessage'
 import MainNav from '@/features/header/MainNav.vue'
 import Logo from '@/features/header/Logo.vue'
 import UserMenu from '@/features/user/UserMenu.vue'
@@ -10,7 +10,7 @@ import TopicSelector from '@/features/discussion/TopicSelector.vue'
 import { usePostsStore } from '@/stores/usePostsStore'
 
 const router = useRouter()
-const message = useMessage()
+const { showSuccess, showWarning, showError } = useAppMessage()
 const postsStore = usePostsStore()
 
 const title = ref('')
@@ -21,12 +21,12 @@ const loading = ref(false)
 // Handlers
 const handlePublish = async () => {
     if (!title.value.trim()) {
-        message.warning('请输入标题')
+        showWarning('请输入标题')
         return
     }
     // TipTap default empty content might be <p></p>
     if (!content.value.trim() || content.value === '<p></p>') {
-        message.warning('请输入内容')
+        showWarning('请输入内容')
         return
     }
 
@@ -40,7 +40,7 @@ const handlePublish = async () => {
             image_urls: [], // 必需字段，暂时为空数组
         })
 
-        message.success('发布成功')
+        showSuccess('发布成功')
         // 使用返回的 post_id 跳转
         if (res.post_id) {
             router.push(`/posts/${res.post_id}`)
@@ -49,7 +49,7 @@ const handlePublish = async () => {
         }
     } catch (e: any) {
         console.error(e)
-        message.error(e.message || '发布失败')
+        showError(e.message || '发布失败')
     } finally {
         loading.value = false
     }
