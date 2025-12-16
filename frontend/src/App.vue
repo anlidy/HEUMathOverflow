@@ -5,7 +5,7 @@ import { NMessageProvider, NDialogProvider } from 'naive-ui'
 <template>
     <n-message-provider>
         <n-dialog-provider>
-            <router-view />
+                <router-view />
         </n-dialog-provider>
     </n-message-provider>
 </template>
