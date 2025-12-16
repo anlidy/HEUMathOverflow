@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { Editor } from '@tiptap/vue-3'
 import { AddOutline, CodeSlashOutline, ListOutline, TextOutline, ImageOutline, RemoveOutline } from '@vicons/ionicons5'
+import { forumApi } from '@/services/forum'
+import { useAppMessage } from '@/composables/useMessage'
 
 const props = defineProps<{
     editor: Editor
@@ -10,6 +12,9 @@ const props = defineProps<{
 const showFloatingMenu = ref(false)
 const floatingMenuTop = ref(0)
 const containerRef = ref<HTMLElement | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const isUploading = ref(false)
+const { showSuccess, showError } = useAppMessage()
 
 defineExpose({
     updatePosition,
@@ -95,8 +100,8 @@ const insertBlock = (type: string) => {
             props.editor.chain().focus().toggleCodeBlock().run()
             break
         case 'image':
-            const url = window.prompt('Image URL')
-            if (url) props.editor.chain().focus().setImage({ src: url }).run()
+            // 触发文件选择
+            fileInputRef.value?.click()
             break
         case 'blockMath':
             props.editor.chain().focus().insertContent({ type: 'blockMath' }).run()
@@ -116,6 +121,50 @@ const insertBlock = (type: string) => {
             break
     }
 }
+
+// 处理图片文件选择
+const handleImageSelect = async (event: Event) => {
+    const target = event.target as HTMLInputElement
+    const file = target.files?.[0]
+
+    if (!file) return
+
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+        showError('请选择图片文件')
+        // 清空文件选择，允许重新选择
+        target.value = ''
+        return
+    }
+
+    // 验证文件大小（例如：最大 10MB）
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    if (file.size > maxSize) {
+        showError('图片大小不能超过 10MB')
+        target.value = ''
+        return
+    }
+
+    try {
+        isUploading.value = true
+        showFloatingMenu.value = false
+
+        // 上传图片
+        const { image_url } = await forumApi.uploadFile(file)
+
+        // 插入图片到编辑器
+        props.editor.chain().focus().setImage({ src: image_url }).run()
+
+        showSuccess('图片上传成功')
+    } catch (error: any) {
+        console.error('图片上传失败:', error)
+        showError(error?.message || '图片上传失败，请重试')
+    } finally {
+        isUploading.value = false
+        // 清空文件选择，允许重新选择同一文件
+        target.value = ''
+    }
+}
 </script>
 
 <template>
@@ -123,12 +172,15 @@ const insertBlock = (type: string) => {
         v-if="editor"
         class="absolute left-2 z-20 transition-all duration-100 ease-out"
         :style="{ top: `${floatingMenuTop}px` }">
+        <!-- 隐藏的文件输入框 -->
+        <input ref="fileInputRef" type="file" accept="image/*" class="hidden" @change="handleImageSelect" />
         <div class="relative">
             <!-- 触发按钮 -->
             <button
                 @mousedown.prevent
                 @click="toggleFloatingMenu"
-                class="flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                :disabled="isUploading"
+                class="flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
                 title="插入内容">
                 <AddOutline class="h-4 w-4" />
             </button>
@@ -217,9 +269,11 @@ const insertBlock = (type: string) => {
                     </button>
                     <button
                         @click="insertBlock('image')"
-                        class="flex h-7 w-7 cursor-pointer items-center justify-center rounded text-gray-600 transition-colors hover:bg-gray-100"
+                        :disabled="isUploading"
+                        class="flex h-7 w-7 cursor-pointer items-center justify-center rounded text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                         title="图片">
-                        <ImageOutline class="h-4 w-4" />
+                        <ImageOutline v-if="!isUploading" class="h-4 w-4" />
+                        <span v-else class="h-4 w-4 animate-spin">⏳</span>
                     </button>
                 </div>
             </div>
