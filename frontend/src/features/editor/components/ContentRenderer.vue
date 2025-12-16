@@ -4,9 +4,14 @@ import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import { common, createLowlight } from 'lowlight'
-import { MathExtension } from '@/features/editor/extensions/MathExtension'
-import MathComponent from '@/features/editor/extensions/MathComponent.vue'
+import { createLowlight } from 'lowlight'
+// 只导入需要的语言，减小构建体积
+import c from 'highlight.js/lib/languages/c'
+import cpp from 'highlight.js/lib/languages/cpp'
+import typescript from 'highlight.js/lib/languages/typescript'
+import python from 'highlight.js/lib/languages/python'
+import java from 'highlight.js/lib/languages/java'
+import { InlineMath, BlockMath } from '@/features/editor/extensions'
 import CodeBlockComponent from '@/features/editor/components/CodeBlockComponent.vue'
 import { watch } from 'vue'
 
@@ -14,8 +19,8 @@ const props = defineProps<{
     content: string
 }>()
 
-// Lowlight setup
-const lowlight = createLowlight(common)
+// Lowlight setup - 只注册需要的语言
+const lowlight = createLowlight({ c, cpp, typescript, python, java })
 
 const editor = useEditor({
     editable: false,
@@ -35,7 +40,8 @@ const editor = useEditor({
         }).configure({
             lowlight,
         }),
-        MathExtension,
+        InlineMath,
+        BlockMath,
     ],
     editorProps: {
         attributes: {
@@ -55,7 +61,7 @@ watch(
 </script>
 
 <template>
-    <div class="content-renderer">
+    <div class="editor-content">
         <EditorContent :editor="editor as any" />
     </div>
 </template>

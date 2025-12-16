@@ -6,8 +6,14 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import { common, createLowlight } from 'lowlight'
-import { MathExtension } from '@/features/editor/extensions/MathExtension'
+import { createLowlight } from 'lowlight'
+// 只导入需要的语言，减小构建体积
+import c from 'highlight.js/lib/languages/c'
+import cpp from 'highlight.js/lib/languages/cpp'
+import typescript from 'highlight.js/lib/languages/typescript'
+import python from 'highlight.js/lib/languages/python'
+import java from 'highlight.js/lib/languages/java'
+import { InlineMath, BlockMath } from '@/features/editor/extensions'
 import FloatingMenu from '@/features/editor/components/FloatingMenu.vue'
 import CodeBlockComponent from '@/features/editor/components/CodeBlockComponent.vue'
 
@@ -20,8 +26,8 @@ const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void
 }>()
 
-// Lowlight setup
-const lowlight = createLowlight(common)
+// Lowlight setup - 只注册需要的语言
+const lowlight = createLowlight({ c, cpp, typescript, python, java })
 
 const floatingMenuRef = ref<InstanceType<typeof FloatingMenu> | null>(null)
 
@@ -57,7 +63,8 @@ const editor = useEditor({
         }).configure({
             lowlight,
         }),
-        MathExtension,
+        InlineMath,
+        BlockMath,
     ],
     editorProps: {
         attributes: {

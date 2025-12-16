@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePostsStore } from '@/stores/usePostsStore'
-import ContentRenderer from '@/features/editor/components/ContentRenderer.vue'
+// 动态导入内容渲染器，减少初始包大小
+const ContentRenderer = defineAsyncComponent(() => import('@/features/editor/components/ContentRenderer.vue'))
 import { getAvatarUrl } from '@/utils/avatar'
 import { ArrowBackOutline, ChatboxOutline, CheckmarkCircle, ThumbsUpOutline } from '@vicons/ionicons5'
 import { useAppMessage } from '@/composables/useMessage'

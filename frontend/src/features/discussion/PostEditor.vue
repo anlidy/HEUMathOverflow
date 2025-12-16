@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import Editor from '@/features/editor/components/Editor.vue'
+import { ref, defineAsyncComponent } from 'vue'
+// 动态导入编辑器组件，减少初始包大小
+const Editor = defineAsyncComponent(() => import('@/features/editor/components/Editor.vue'))
 
 const props = defineProps<{
     modelValue: string
