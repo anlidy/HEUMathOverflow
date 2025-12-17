@@ -1,5 +1,11 @@
 #### Go版本: 1.24.x
 
+#### 数据库架构文档
+
+详细的数据库ER图和架构说明请查看：
+- [数据库ER图（中文）](../数据库ER图.md)
+- [Database ER Diagram (English)](../Database-ER-Diagram.md)
+
 #### 安装依赖库: 
 ```bash
 # 容器部署时由docker自动完成
