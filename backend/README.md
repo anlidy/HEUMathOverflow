@@ -7,6 +7,12 @@
  go mod download
 ```
 
+#### 数据库架构
+
+详细的数据库ER图和架构说明请参考：
+- [数据库ER图（中文）](../数据库ER图.md)
+- [Database ER Diagram (English)](../Database-ER-Diagram.md)
+
 #### 项目结构:
 
 `/bin` 部署用脚本
