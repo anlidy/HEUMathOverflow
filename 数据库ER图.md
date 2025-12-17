@@ -95,13 +95,13 @@ erDiagram
     User ||--o{ Post : "author_id（作者）"
     
     %% 帖子相关关系
-    Post ||--o{ PostLike : "级联删除"
-    Post ||--o{ PostStar : "级联置空"
-    Post ||--o{ Reply : "级联删除"
+    Post ||--o{ PostLike : "删除帖子时级联删除点赞记录"
+    Post ||--o{ PostStar : "删除帖子时置空post_id"
+    Post ||--o{ Reply : "删除帖子时级联删除所有回复"
     
     %% 回复相关关系
-    Reply ||--o{ ReplyLike : "级联删除"
-    Reply ||--o{ Reply : "parent_reply_id（自引用，级联置空）"
+    Reply ||--o{ ReplyLike : "删除回复时级联删除点赞记录"
+    Reply ||--o{ Reply : "parent_reply_id（自引用，删除父回复时置空）"
     
     %% 用户与点赞/收藏的关系（跨数据库引用）
     User ||--o{ PostLike : "user_id"
@@ -176,7 +176,7 @@ erDiagram
 **外键约束**:
 - `post_id` → `Post.id`（级联置空：删除帖子时将post_id设为NULL，保留收藏记录）
 
-**设计说明**: 使用级联置空而非级联删除，可以保留用户的收藏历史记录
+**设计说明**: 使用级联置空而非级联删除，可以避免因帖子删除导致用户收藏列表数据丢失。但post_id为NULL的收藏记录表示该帖子已被删除，需要在UI层面做特殊处理（如显示"帖子已不存在"）。
 
 ### 5. Reply 表（回复）
 

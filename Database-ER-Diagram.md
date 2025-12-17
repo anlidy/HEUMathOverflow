@@ -95,13 +95,13 @@ erDiagram
     User ||--o{ Post : "author_id (author)"
     
     %% Post relationships
-    Post ||--o{ PostLike : "CASCADE DELETE"
-    Post ||--o{ PostStar : "SET NULL"
-    Post ||--o{ Reply : "CASCADE DELETE"
+    Post ||--o{ PostLike : "CASCADE DELETE on post removal"
+    Post ||--o{ PostStar : "SET NULL on post deletion"
+    Post ||--o{ Reply : "CASCADE DELETE on post removal"
     
     %% Reply relationships
-    Reply ||--o{ ReplyLike : "CASCADE DELETE"
-    Reply ||--o{ Reply : "parent_reply_id (self-reference, SET NULL)"
+    Reply ||--o{ ReplyLike : "CASCADE DELETE on reply removal"
+    Reply ||--o{ Reply : "parent_reply_id (self-ref, SET NULL on parent deletion)"
     
     %% User to interactions (cross-database reference)
     User ||--o{ PostLike : "user_id"
@@ -174,9 +174,9 @@ erDiagram
 - `created_at`: Favorite timestamp
 
 **Foreign Key Constraints**:
-- `post_id` → `Post.id` (SET NULL: set post_id to NULL when post is deleted, keep favorite history)
+- `post_id` → `Post.id` (SET NULL: when a post is deleted, the post_id is set to NULL but the favorite record is retained)
 
-**Design Note**: Using SET NULL instead of CASCADE DELETE preserves user favorite history
+**Design Note**: Using SET NULL instead of CASCADE DELETE prevents users from losing their favorite list when posts are deleted. However, favorites with NULL post_id represent deleted posts and may need special handling in the UI (e.g., showing as "Post no longer available").
 
 ### 5. Reply Table (Replies)
 
