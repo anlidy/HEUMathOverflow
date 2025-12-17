@@ -1,0 +1,270 @@
+
+services:
+  # Traefik 反向代理 & 负载均衡器
+  traefik:
+    image: docker.io/traefik:3.6.4
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      # 启用 API & 仪表板
+      - "--api=true"
+      - "--api.dashboard=true"
+      # 定义入口点
+      - "--entrypoints.web.address=:80"
+      # Docker 提供者
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=backend_default"
+    ports:
+      - "80:80"           # HTTP 入口
+      - "8080:8080"       # Traefik Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      # Traefik 自身仪表板
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`localhost`) && PathPrefix(`/dashboard`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.entrypoints=web"
+    networks:
+      - default
+  
+  static-file-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.static
+      target: lite
+    restart: unless-stopped
+    tty: true
+    # 接入 Traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.static-file-service.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.static-file-service.priority=1"
+      - "traefik.http.routers.static-file-service.entrypoints=web"
+      - "traefik.http.services.static-file-service.loadbalancer.server.port=80"
+    networks:
+      - default
+
+  # 用户服务
+  user-service:
+    build:
+      context: ../backend
+      target: production
+      args:
+        SERVICE: user
+        EXPOSE_PORT: 8081
+    restart: unless-stopped
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      # App reads internal/common/config/user.yaml by default; config file already points to container hostnames.
+      GIN_MODE: release
+    # 不再直接暴露端口，通过 Traefik 访问
+    expose:
+      - "8081"          # 仅内部暴露，由 Traefik 路由
+      - "50051"         # gRPC 只在 Docker 网络内部可见
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-service.rule=PathPrefix(`/api/v1/user`)"
+      - "traefik.http.routers.user-service.priority=10"
+      - "traefik.http.routers.user-service.entrypoints=web"
+      - "traefik.http.services.user-service.loadbalancer.server.port=8081"
+    networks:
+      - default
+  
+  # 论坛服务
+  forum-service:
+    build:
+      context: ../backend
+      target: production
+      args:
+        SERVICE: forum
+        EXPOSE_PORT: 8082
+    restart: unless-stopped
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    expose:
+      - "8082"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.forum-service.rule=PathPrefix(`/api/v1/forum`)"
+      - "traefik.http.routers.forum-service.priority=10"
+      - "traefik.http.routers.forum-service.entrypoints=web"
+      - "traefik.http.services.forum-service.loadbalancer.server.port=8082"
+    networks:
+      - default
+
+  # 审核服务
+  audit-service:
+    build:
+      context: ../backend
+      target: production
+      args:
+        SERVICE: audit
+        EXPOSE_PORT: 8083
+    restart: on-failure
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    expose:
+      - "8083"          # 仅内部暴露，由 Traefik 路由
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.audit-service.rule=PathPrefix(`/api/v1/audit`)"
+      - "traefik.http.routers.audit-service.priority=10"
+      - "traefik.http.routers.audit-service.entrypoints=web"
+      - "traefik.http.services.audit-service.loadbalancer.server.port=8083"
+    networks:
+      - default
+  
+  # ES Indexer 服务（消费 MQ，异步同步数据至 Elasticsearch）
+  es-service:
+    build:
+      context: ../backend
+      target: production
+      args:
+        SERVICE: es
+        EXPOSE_PORT: 0               # 一般不暴露 HTTP 端口
+    restart: unless-stopped
+    tty: true
+    environment:
+      GIN_MODE: release
+    # 不需要 ports（不是对外服务）
+    networks:
+      - default
+
+  pgsadmin:
+    image: docker.io/dpage/pgadmin4:snapshot
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    tty: true
+    ports:
+      - "18080:80"
+      - "18443:443"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    tty: true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Shanghai
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - pgs_data:/var/lib/postgresql/data
+      - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro  # 可选
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - /etc/timezone:/etc/timezone:ro  # 可选
+
+  minio:
+    image: docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      # - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+      - /etc/timezone:/etc/timezone:ro  # 可选
+  
+  mongodb:
+    image: docker.io/library/mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    command: 
+    # ports:
+    #  - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config_db:/data/configdb
+      - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
+      - /etc/timezone:/etc/timezone:ro  # 可选
+
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.8
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false          # 开发环境禁用认证
+      - ES_JAVA_OPTS=-Xms1g -Xmx2g            # 按需调整
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - /etc/timezone:/etc/timezone:ro        # 保持时区一致（你的服务都这样）
+    # ports:
+    #   - "9200:9200"     # 如需本地访问再打开
+    networks:
+      - default
+
+  # Kibana 可视化平台
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.19.8
+    container_name: kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_PUBLICBASEURL=http://localhost:5601
+    depends_on:
+      - elasticsearch
+    ports:
+      - "5601:5601"      # Kibana 对外访问端口
+    networks:
+      - default
+
+  # RabbitMQ 消息队列服务（Topic Exchange）
+  rabbitmq:
+    image: rabbitmq:4.1.6-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD}
+    tty: true
+    ports:
+      # - "5672:5672"     # MQ 连接端口
+      - "15672:15672"   # Web管理界面
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - /etc/timezone:/etc/timezone:ro
+
+networks:
+  default:
+    name: backend_default
+    driver: bridge
+  
+volumes:
+  pgs_data:
+  pgadmin_data:
+  redis_data:
+  minio_data:
+  mongo_data:
+  mongo_config_db:
+  es_data:
+  rabbitmq_data:
+  static_files:

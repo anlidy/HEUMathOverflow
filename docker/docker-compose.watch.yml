@@ -3,8 +3,7 @@ services:
   # 用户服务
   user-service:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../backend
       target: development
       args:
         SERVICE: user
@@ -23,7 +22,7 @@ services:
     develop:
       watch: 
         - action: sync
-          path: ..
+          path: ../backend
           target: /src
           ignore:
             - .git/
@@ -37,17 +36,16 @@ services:
             - proto/audit/
 
         - action: rebuild 
-          path: ../docker/Dockerfile
+          path: ../backend/Dockerfile
         
         - action: sync+restart 
-          path: ../cmd/user-service/.air.toml
+          path: ../backend/cmd/user-service/.air.toml
           target: /src/cmd/user-service/.air.toml
 
   # 论坛服务
   forum-service:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../backend
       target: development
       args:
         SERVICE: forum
@@ -63,7 +61,7 @@ services:
     develop:
       watch: 
         - action: sync
-          path: ..
+          path: ../backend
           target: /src
           ignore:
             - .git/
@@ -77,17 +75,16 @@ services:
             - proto/audit/
 
         - action: rebuild 
-          path: ../docker/Dockerfile
+          path: ../backend/Dockerfile
         
         - action: sync+restart 
-          path: ../cmd/forum-service/.air.toml
+          path: ../backend/cmd/forum-service/.air.toml
           target: /src/cmd/forum-service/.air.toml
 
   # 审核服务
   audit-service:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../backend
       target: development
       args:
         SERVICE: audit
@@ -103,7 +100,7 @@ services:
     develop:
       watch: 
         - action: sync
-          path: ..
+          path: ../backend
           target: /src
           ignore:
             - .git/
@@ -117,17 +114,16 @@ services:
             - proto/forum/
 
         - action: rebuild 
-          path: ../docker/Dockerfile
+          path: ../backend/Dockerfile
         
         - action: sync+restart 
-          path: ../cmd/audit-service/.air.toml
+          path: ../backend/cmd/audit-service/.air.toml
           target: /src/cmd/audit-service/.air.toml
   
   # ES Indexer 服务（消费 MQ，异步同步数据至 Elasticsearch）
   es-service:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../backend
       target: development
       args:
         SERVICE: es
@@ -142,7 +138,7 @@ services:
     develop:
       watch:
         - action: sync
-          path: ..
+          path: ../backend
           target: /src
           ignore:
             - .git/
@@ -159,10 +155,10 @@ services:
             - proto/user/
 
         - action: rebuild 
-          path: ../docker/Dockerfile
+          path: ../backend/Dockerfile
         
         - action: sync+restart 
-          path: ../cmd/es-service/.air.toml
+          path: ../backend/cmd/es-service/.air.toml
           target: /src/cmd/es-service/.air.toml
 
   pgsadmin:
