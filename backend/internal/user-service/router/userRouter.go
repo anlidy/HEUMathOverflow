@@ -11,9 +11,6 @@ import (
 
 func SetupRouter(rdb *redis.Client, uc controller.UserController) *gin.Engine {
 	r := gin.Default()
-<<<<<<< HEAD
-	r.Use(middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"}))
-=======
 	r.Use(
 		middleware.RequestIDMiddleware(),
 		middleware.MetricsMiddleware("user-service"),
@@ -24,7 +21,6 @@ func SetupRouter(rdb *redis.Client, uc controller.UserController) *gin.Engine {
 	// Prometheus metrics endpoint
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
->>>>>>> go-dev
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 

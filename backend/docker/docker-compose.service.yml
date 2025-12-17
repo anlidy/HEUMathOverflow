@@ -45,12 +45,26 @@ services:
       args:
         SERVICE: audit
         EXPOSE_PORT: 8083
-    restart: unless-stopped
+    restart: on-failure
     tty: true         # 给容器分配伪终端（-t）
     environment:
       GIN_MODE: release
     ports:
       - "8083:8083"
+
+  # ES Indexer 服务（消费 MQ，异步同步数据至 Elasticsearch）
+  es-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+      args:
+        SERVICE: es
+        EXPOSE_PORT: 0               # 一般不暴露 HTTP 端口
+    restart: unless-stopped
+    tty: true
+    environment:
+      GIN_MODE: release
 
   pgsadmin:
     image: docker.io/dpage/pgadmin4:snapshot
@@ -119,6 +133,58 @@ services:
       - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
       - /etc/timezone:/etc/timezone:ro  # 可选
 
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.8
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false          # 开发环境禁用认证
+      - ES_JAVA_OPTS=-Xms1g -Xmx2g            # 按需调整
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - /etc/timezone:/etc/timezone:ro        # 保持时区一致（你的服务都这样）
+    # ports:
+    #   - "9200:9200"     # 如需本地访问再打开
+    networks:
+      - default
+
+  # Kibana 可视化平台
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.19.8
+    container_name: kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_PUBLICBASEURL=http://localhost:5601
+    depends_on:
+      - elasticsearch
+    ports:
+      - "5601:5601"      # Kibana 对外访问端口
+    networks:
+      - default
+
+  # RabbitMQ 消息队列服务（Topic Exchange）
+  rabbitmq:
+    image: rabbitmq:4.1.6-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD}
+    tty: true
+    ports:
+      # - "5672:5672"     # MQ 连接端口
+      - "15672:15672"   # Web管理界面
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - /etc/timezone:/etc/timezone:ro
+
 networks:
   default:
     name: backend_default
@@ -131,3 +197,5 @@ volumes:
   minio_data:
   mongo_data:
   mongo_config_db:
+  es_data:
+  rabbitmq_data:
