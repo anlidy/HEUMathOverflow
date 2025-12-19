@@ -8,6 +8,7 @@ import UserMenu from '@/features/user/UserMenu.vue'
 import PostEditor from '@/features/discussion/PostEditor.vue'
 import TopicSelector from '@/features/discussion/TopicSelector.vue'
 import { usePostsStore } from '@/stores/usePostsStore'
+import { extractImageUrls } from '@/utils/content'
 
 const router = useRouter()
 const { showSuccess, showWarning, showError } = useAppMessage()
@@ -32,12 +33,15 @@ const handlePublish = async () => {
 
     loading.value = true
     try {
+        // 从内容中提取所有图片 URL
+        const imageUrls = extractImageUrls(content.value)
+
         // createPost 返回 { post_id: string }
         const res = await postsStore.createPost({
             title: title.value,
             content: content.value,
             tags: selectedTopics.value,
-            image_urls: [], // 必需字段，暂时为空数组
+            image_urls: imageUrls, // 提取内容中的所有图片 URL
         })
 
         showSuccess('发布成功')

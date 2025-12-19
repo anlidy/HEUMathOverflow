@@ -3,6 +3,7 @@ import Avatar from '@/components/display/Avatar.vue'
 import Skeleton from '@/components/display/Skeleton.vue'
 import type { Post } from '@/types/forum'
 import { getAvatarUrl } from '@/utils/avatar'
+import { extractPlainText } from '@/utils/content'
 import { ChatbubbleOutline, EyeOutline, ThumbsUpOutline } from '@vicons/ionicons5'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -18,23 +19,23 @@ const router = useRouter()
 const avatarSrc = computed(() => getAvatarUrl(props.post?.author?.avatar_url))
 
 const goToDetail = () => {
-    // 使用新字段名 post_id
     if (props.post?.post_id) {
         router.push(`/posts/${props.post.post_id}`)
     }
 }
 
-// Simple HTML strip for preview
+// 从 HTML 内容中提取纯文本（避免触发图片加载）
 const plainContent = computed(() => {
     if (!props.post?.content) return ''
-    const tmp = document.createElement('DIV')
-    tmp.innerHTML = props.post.content
-    return tmp.textContent || tmp.innerText || ''
+    return extractPlainText(props.post.content)
 })
 </script>
 
 <template>
-    <article v-if="!loading" @click="goToDetail" class="flex h-40 w-full cursor-pointer gap-2 border-b border-gray-200 hover:bg-gray-50 transition-colors p-2 rounded-lg">
+    <article
+        v-if="!loading"
+        @click="goToDetail"
+        class="flex h-40 w-full cursor-pointer gap-2 rounded-lg border-b border-gray-200 p-2 transition-colors hover:bg-gray-50">
         <button class="flex h-10 w-7 flex-col items-center justify-end" @click.stop>
             <!-- Prevent bubble up if clicking avatar goes to profile -->
             <Avatar :avatarUrl="avatarSrc" size="28px" />
@@ -44,9 +45,11 @@ const plainContent = computed(() => {
             <div class="flex items-center gap-2 text-sm text-gray-500">
                 <span>{{ post?.author?.username }}</span>
                 <!-- 使用新字段名 created_at -->
-                <time :datetime="post?.created_at">{{ post?.created_at ? new Date(post.created_at).toLocaleDateString() : '' }}</time>
+                <time :datetime="post?.created_at">
+                    {{ post?.created_at ? new Date(post.created_at).toLocaleDateString() : '' }}
+                </time>
                 <div v-if="post?.tags?.length" class="flex gap-1">
-                    <span v-for="tag in post.tags.slice(0, 2)" :key="tag" class="bg-gray-100 px-1 rounded text-xs">
+                    <span v-for="tag in post.tags.slice(0, 2)" :key="tag" class="rounded bg-gray-100 px-1 text-xs">
                         {{ tag }}
                     </span>
                 </div>
