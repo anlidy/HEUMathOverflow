@@ -80,6 +80,26 @@ func (uc *UserController) UserLogin(c *gin.Context) {
 	}
 }
 
+// 用户退出登录
+func (uc *UserController) UserLogout(c *gin.Context) {
+	var ctx = c.Request.Context()
+	userID := c.GetInt64("userID")
+	sessionID, err := c.Cookie("session-id")
+	if err != nil || sessionID == "" {
+		api.JSON(c).Code(http.StatusUnauthorized).Message("未找到有效会话,请重新登录").Send()
+		return
+	}
+	sysErr := uc.userService.UserLogout(ctx, userID, sessionID)
+	switch sysErr {
+	case syserror.InternalError:
+		api.JSON(c).Code(http.StatusInternalServerError).Message("退出登录失败").Send()
+	case syserror.NoError:
+		// 清除 Cookie
+		c.SetCookie("session-id", "", -1, "/", "localhost", false, true)
+		api.JSON(c).Code(http.StatusOK).Message("退出登录成功").Send()
+	}
+}
+
 // 上传头像
 func (uc *UserController) UserUploadAvatar(c *gin.Context) {
 	var ctx = c.Request.Context()
@@ -191,4 +211,35 @@ func (uc *UserController) UserUpdatePassword(c *gin.Context) {
 		return
 	}
 	api.JSON(c).Code(http.StatusOK).Message("密码修改成功").Send()
+}
+
+// 用户注销账号
+func (uc *UserController) UserDeleteAccount(c *gin.Context) {
+	var ctx = c.Request.Context()
+	var userID = c.GetInt64("userID")
+	sessionID, err := c.Cookie("session-id")
+	if err != nil || sessionID == "" {
+		api.JSON(c).Code(http.StatusUnauthorized).Message("未找到有效会话,请重新登录").Send()
+		return
+	}
+
+	var req request.UserDelete
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.JSON(c).Code(http.StatusBadRequest).Message("数据格式校验不通过").Send()
+		return
+	}
+
+	sysErr := uc.userService.UserDeleteAccount(ctx, userID, req.Password, sessionID)
+	switch sysErr {
+	case syserror.NotFoundError:
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到该用户").Send()
+	case syserror.PasswordError:
+		api.JSON(c).Code(http.StatusUnauthorized).Message("密码错误,账号注销失败").Send()
+	case syserror.InternalError:
+		api.JSON(c).Code(http.StatusInternalServerError).Message("账号注销失败").Send()
+	case syserror.NoError:
+		// 清除 Cookie
+		c.SetCookie("session-id", "", -1, "/", "localhost", false, true)
+		api.JSON(c).Code(http.StatusOK).Message("账号已注销").Send()
+	}
 }

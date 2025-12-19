@@ -23,6 +23,8 @@ type UserService interface {
 	RPCBatchGetUserInfo(ctx context.Context, userIDs []int64) (map[int64]*userpb.GetUserResponse, syserror.Error)
 	UserRegister(ctx context.Context, req request.UserRegister) (*model.Session, *response.UserInfo, syserror.Error)
 	UserLogin(ctx context.Context, req request.UserLogin) (*model.Session, *response.UserInfo, syserror.Error)
+	UserLogout(ctx context.Context, userID int64, sessionID string) syserror.Error
+	UserDeleteAccount(ctx context.Context, userID int64, password, sessionID string) syserror.Error
 	UserUploadAvatar(ctx context.Context, userID int64, file common.File) (string, syserror.Error)
 	UserDownloadAvatar(ctx context.Context, filename string) (*common.File, syserror.Error)
 	UserUpdateProfie(ctx context.Context, userID int64, req request.UserProfie) syserror.Error
@@ -206,6 +208,56 @@ func (s *userService) UserLogin(ctx context.Context, req request.UserLogin) (*mo
 		AvatarUrl: user.AvatarUrl,
 	}
 	return session, info, syserror.NoError
+}
+
+// 用户退出登录
+func (s *userService) UserLogout(ctx context.Context, userID int64, sessionID string) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
+	var session = model.Session{
+		SessionID: sessionID,
+		UserID:    userID,
+	}
+	if err := s.sessionRepo.DeleteSession(ctx, session); err != nil {
+		logger.WithError(err).Error("delete session failed")
+		return syserror.InternalError
+	}
+	return syserror.NoError
+}
+
+// 用户注销账号
+func (s *userService) UserDeleteAccount(ctx context.Context, userID int64, password, sessionID string) syserror.Error {
+	logger := utils.WithContext(ctx).WithField("service", s.servName)
+	// 获取用户记录
+	user, err := s.userRepo.FindUserByID(userID)
+	if err == gorm.ErrRecordNotFound {
+		return syserror.NotFoundError
+	} else if err != nil {
+		logger.WithError(err).Error("find user by id failed")
+		return syserror.InternalError
+	}
+
+	// 校验密码是否正确
+	if !utils.ValidatePassword(user.PasswordHash, password) {
+		return syserror.PasswordError
+	}
+
+	// 删除用户
+	_, err = s.userRepo.DeleteUser(userID)
+	if err != nil {
+		logger.WithError(err).Error("delete user failed")
+		return syserror.InternalError
+	}
+
+	// 删除当前会话（如果失败，仅记录日志，不影响注销结果）
+	session := model.Session{
+		SessionID: sessionID,
+		UserID:    userID,
+	}
+	if err := s.sessionRepo.DeleteSession(ctx, session); err != nil {
+		logger.WithError(err).Warn("delete session after account delete failed")
+	}
+
+	return syserror.NoError
 }
 
 // 上传用户头像
