@@ -12,7 +12,7 @@ const emit = defineEmits<{
 
 const showTopicDropdown = ref(false)
 const topicSearch = ref('')
-const popularTopics = ['前端开发', '后端开发', 'Vue.js', 'React', '算法']
+const popularTopics = ['线性代数', '高等数学', '微积分', '概率论', '离散数学', '数值分析']
 
 const filteredTopics = computed(() => {
     const search = topicSearch.value.toLowerCase()

@@ -8,6 +8,7 @@ import TagBar from '@/components/common/TagBar.vue'
 import { AddOutline } from '@vicons/ionicons5'
 import { ref, onMounted } from 'vue'
 import { usePostsStore } from '@/stores/usePostsStore'
+import { forumApi } from '@/services/forum'
 
 const postsStore = usePostsStore()
 const loading = ref(false)
@@ -19,10 +20,48 @@ const selectedTag = ref('全部')
 const fetchPosts = async () => {
     loading.value = true
     try {
-        await postsStore.getPosts({
-            // 可以根据选中的标签过滤
-            tags: selectedTag.value !== '全部' ? [selectedTag.value] : undefined,
-        })
+        // 如果选择了标签（非"全部"），尝试使用搜索接口
+        if (selectedTag.value !== '全部') {
+            try {
+                const response = await forumApi.searchPosts({
+                    query: '', // 空查询，仅按标签筛选
+                    tags: [selectedTag.value],
+                    page: 1,
+                    page_size: 20,
+                    sort: 1, // 默认排序
+                })
+                // 更新 store 中的帖子列表和分页信息
+                postsStore.posts = response.posts
+                postsStore.pagination = response.pagination
+            } catch (error: any) {
+                // 如果搜索接口不可用（404等），降级到获取所有帖子并在前端筛选
+                console.warn('搜索接口不可用，使用前端筛选:', error)
+                await postsStore.getPosts({
+                    page: 1,
+                    page_size: 100, // 获取更多帖子以便筛选
+                    order: 0, // 推荐排序
+                })
+                // 在前端按标签筛选
+                const allPosts = postsStore.posts
+                const filteredPosts = allPosts.filter((post) => post.tags.includes(selectedTag.value))
+                postsStore.posts = filteredPosts
+                // 更新分页信息
+                if (postsStore.pagination) {
+                    postsStore.pagination = {
+                        ...postsStore.pagination,
+                        total: filteredPosts.length,
+                        total_pages: Math.ceil(filteredPosts.length / (postsStore.pagination.page_size || 20)),
+                    }
+                }
+            }
+        } else {
+            // 没有选择标签时，使用普通获取帖子列表接口
+            await postsStore.getPosts({
+                page: 1,
+                page_size: 20,
+                order: 0, // 推荐排序
+            })
+        }
     } finally {
         loading.value = false
     }

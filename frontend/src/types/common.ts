@@ -5,13 +5,13 @@ export interface Response<T> {
     data: T
 }
 
-// 分页响应（后端应补充返回）
+// 分页响应（已废弃，请使用 forum.ts 中的 PaginatedResponse）
+// 保留此类型以保持向后兼容性
 export interface PaginatedResponse<T> extends Response<T> {
     pagination?: {
-        offset: number
-        limit: number
-        total: number
-        has_more: boolean
+        page: number
+        page_size: number
+        total?: number
     }
 }
 

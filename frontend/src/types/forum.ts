@@ -26,6 +26,8 @@ export interface PostData {
     last_reply_at: string | null
     created_at: string
     updated_at: string
+    liked?: boolean // 当前用户是否点赞该贴（仅在详情接口返回）
+    starred?: boolean // 当前用户是否收藏该贴（仅在详情接口返回）
 }
 
 // 带作者信息的帖子（后端实际返回结构）
@@ -56,8 +58,8 @@ export interface ReplyData {
     ai_answered: boolean
     certified_by: string | null
     created_at: string
-    // 注意：后端未返回 likes 字段，需要补充
-    likes?: number
+    likes: number // 点赞数
+    liked?: boolean // 当前用户是否点赞该回复
 }
 
 // 带作者信息的回复（后端实际返回结构）
@@ -81,12 +83,19 @@ export interface Tag {
 }
 
 // ============ 分页信息 ============
-// 前端适配类型（转换 offset 为 page）
+// 后端返回的分页信息
+export interface BackendPagination {
+    page: number
+    page_size: number
+    total?: number // 部分接口不返回total（如获取帖子列表）
+}
+
+// 前端使用的分页信息
 export interface Pagination {
     page: number
-    limit: number
-    total: number
-    total_pages: number
+    page_size: number
+    total?: number
+    total_pages?: number // 根据total计算得出
 }
 
 // ============ 请求类型 ============
@@ -119,24 +128,35 @@ export interface CreateReplyRequest {
 
 // 获取帖子列表参数
 export interface GetPostsParams {
-    offset?: number
-    limit?: number
-    order?: OrderBy // 0:推荐 1:最热 2:最新
-    // 以下参数后端暂未支持，见后端待补充字段文档
-    tags?: string[]
-    search?: string
+    page?: number // 页码，从1开始，默认1
+    page_size?: number // 每页帖子数，默认20
+    order?: OrderBy // 0:推荐 1:最热 2:最新，默认0
 }
 
 // 获取回复列表参数
 export interface GetRepliesParams {
-    offset?: number
-    limit?: number
+    page?: number // 页码，从1开始
+    page_size?: number // 每页回复数
+}
+
+// 搜索帖子参数
+export interface SearchPostsParams {
+    query: string // 搜索关键词
+    tags?: string[] // 标签筛选
+    page?: number // 页码，从1开始，默认1
+    page_size?: number // 每页帖子数，默认20
+    sort?: 1 | 2 | 3 | 4 | 5 // 1:默认排序 2:热度高 3:新发布 4:浏览多 5:评论多，默认1
 }
 
 // ============ 响应类型 ============
 
+// 带分页的响应结构
+export interface PaginatedResponse<T> extends Response<T> {
+    pagination: BackendPagination
+}
+
 // 获取帖子列表响应
-export interface GetPostsResponse extends Response<PostWithAuthor[]> {}
+export interface GetPostsResponse extends PaginatedResponse<PostWithAuthor[]> {}
 
 // 获取帖子详情响应
 export interface GetPostDetailResponse extends Response<PostWithAuthor> {}
@@ -148,16 +168,10 @@ export interface CreatePostResponse extends Response<{ post_id: string }> {}
 export interface UpdatePostResponse extends Response<null> {}
 
 // 获取回复列表响应
-export interface GetRepliesResponse extends Response<ReplyWithAuthor[]> {}
+export interface GetRepliesResponse extends PaginatedResponse<ReplyWithAuthor[]> {}
 
 // 创建回复响应
 export interface CreateReplyResponse extends Response<{ reply_id: string }> {}
-
-// 点赞查询响应
-export interface LikeQueryResponse extends Response<{ liked: boolean }> {}
-
-// 收藏查询响应
-export interface StarQueryResponse extends Response<{ starred: boolean }> {}
 
 // 点赞操作响应（后端只返回 code 和 message）
 export interface LikeResponse extends Response<null> {}
@@ -169,4 +183,7 @@ export interface StarResponse extends Response<null> {}
 export interface GetTagsResponse extends Response<{ tags: Tag[] }> {}
 
 // 获取收藏列表响应
-export interface GetBookmarksResponse extends Response<PostWithAuthor[]> {}
+export interface GetBookmarksResponse extends PaginatedResponse<PostWithAuthor[]> {}
+
+// 搜索帖子响应
+export interface SearchPostsResponse extends PaginatedResponse<PostWithAuthor[]> {}

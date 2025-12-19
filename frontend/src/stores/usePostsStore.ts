@@ -231,11 +231,14 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await forumApi.togglePostLike(postId)
+        // 获取当前点赞状态
+        const interaction = postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
+        const currentLiked = interaction.is_liked
+
+        const response = await forumApi.togglePostLike(postId, currentLiked)
         const { is_liked, likes } = response
 
         // 更新交互状态
-        const interaction = postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
         interaction.is_liked = is_liked
         postInteractions.value.set(postId, interaction)
 
@@ -260,7 +263,10 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await forumApi.toggleReplyLike(replyId)
+        // 获取当前点赞状态
+        const currentLiked = replyInteractions.value.get(replyId) || false
+
+        const response = await forumApi.toggleReplyLike(replyId, currentLiked)
         const { is_liked } = response
 
         // 更新交互状态
@@ -284,11 +290,14 @@ export const usePostsStore = defineStore('posts', () => {
             return Promise.reject(new Error(authError))
         }
 
-        const response = await forumApi.togglePostStar(postId)
+        // 获取当前收藏状态
+        const interaction = postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
+        const currentStarred = interaction.is_starred
+
+        const response = await forumApi.togglePostStar(postId, currentStarred)
         const { is_starred } = response
 
         // 更新交互状态
-        const interaction = postInteractions.value.get(postId) || { is_liked: false, is_starred: false }
         interaction.is_starred = is_starred
         postInteractions.value.set(postId, interaction)
 
@@ -305,7 +314,7 @@ export const usePostsStore = defineStore('posts', () => {
     }
 
     // 获取收藏列表
-    const getBookmarks = async (params?: { offset?: number; limit?: number }) => {
+    const getBookmarks = async (params?: { page?: number; page_size?: number }) => {
         const authError = checkAuth()
         if (authError) {
             return Promise.reject(new Error(authError))

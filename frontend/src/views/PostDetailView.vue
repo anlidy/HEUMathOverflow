@@ -48,7 +48,7 @@ const fetchPost = async () => {
 
 const fetchReplies = async () => {
     try {
-        await postsStore.getReplies(postId, { limit: 50 })
+        await postsStore.getReplies(postId, { page_size: 50 })
     } catch (e) {
         console.error(e)
         showError('获取评论失败')

@@ -12,11 +12,11 @@ import type {
     CreateReplyRequest,
     CreateReplyResponse,
     LikeResponse,
-    LikeQueryResponse,
     StarResponse,
-    StarQueryResponse,
     GetTagsResponse,
     GetBookmarksResponse,
+    SearchPostsParams,
+    SearchPostsResponse,
     Post,
     Reply,
     PostWithAuthor,
@@ -49,21 +49,15 @@ const mapReplyWithAuthor = (data: ReplyWithAuthor): Reply => {
 }
 
 /**
- * 计算分页信息（后端使用 offset，前端使用 page）
- * TODO: 后端应补充返回 total 字段
+ * 将后端返回的分页信息转换为前端使用的分页信息
  */
-const calculatePagination = (offset: number, limit: number, dataLength: number): Pagination => {
-    const page = Math.floor(offset / limit) + 1
-    // 注意：后端未返回 total，这里使用估算值
-    // 如果返回数据量等于 limit，假设还有更多数据
-    const hasMore = dataLength >= limit
-    const estimatedTotal = hasMore ? offset + limit + 1 : offset + dataLength
-
+const mapPagination = (backendPagination: { page: number; page_size: number; total?: number }): Pagination => {
+    const { page, page_size, total } = backendPagination
     return {
         page,
-        limit,
-        total: estimatedTotal, // 估算值，后端应补充返回真实 total
-        total_pages: Math.ceil(estimatedTotal / limit),
+        page_size,
+        total,
+        total_pages: total ? Math.ceil(total / page_size) : undefined,
     }
 }
 
@@ -76,19 +70,19 @@ export const forumApi = {
      * 获取帖子列表
      */
     getPosts: async (params?: GetPostsParams): Promise<{ posts: Post[]; pagination: Pagination }> => {
-        const limit = params?.limit || 10
-        const offset = params?.offset || 0
+        const page = params?.page || 1
+        const page_size = params?.page_size || 20
         const order = params?.order ?? 0
 
         const res = await request.get<GetPostsResponse>('/api/v1/forum/posts', {
-            params: { offset, limit, order },
+            params: { page, page_size, order },
         })
 
         const posts = (res.data || []).map(mapPostWithAuthor)
 
         return {
             posts,
-            pagination: calculatePagination(offset, limit, posts.length),
+            pagination: mapPagination(res.pagination || { page, page_size }),
         }
     },
 
@@ -133,14 +127,6 @@ export const forumApi = {
     // ============ 帖子点赞相关 ============
 
     /**
-     * 查询用户是否点赞了帖子
-     */
-    checkPostLike: async (postId: string): Promise<boolean> => {
-        const res = await request.get<LikeQueryResponse>(`/api/v1/forum/posts/like/${postId}`)
-        return res.data.liked
-    },
-
-    /**
      * 点赞帖子
      */
     likePost: async (postId: string): Promise<void> => {
@@ -155,35 +141,25 @@ export const forumApi = {
     },
 
     /**
-     * 切换帖子点赞状态（先查询再操作）
+     * 切换帖子点赞状态（根据当前状态切换）
      */
-    togglePostLike: async (postId: string): Promise<{ is_liked: boolean; likes: number }> => {
-        const isLiked = await forumApi.checkPostLike(postId)
-
-        if (isLiked) {
+    togglePostLike: async (postId: string, currentLiked: boolean): Promise<{ is_liked: boolean; likes: number }> => {
+        if (currentLiked) {
             await forumApi.unlikePost(postId)
         } else {
             await forumApi.likePost(postId)
         }
 
-        // 重新获取帖子详情以获取最新点赞数
+        // 重新获取帖子详情以获取最新点赞数和状态
         const { post } = await forumApi.getPostDetail(postId)
 
         return {
-            is_liked: !isLiked,
+            is_liked: post.liked ?? !currentLiked,
             likes: post.likes,
         }
     },
 
     // ============ 帖子收藏相关 ============
-
-    /**
-     * 查询用户是否收藏了帖子
-     */
-    checkPostStar: async (postId: string): Promise<boolean> => {
-        const res = await request.get<StarQueryResponse>(`/api/v1/forum/posts/star/${postId}`)
-        return res.data.starred
-    },
 
     /**
      * 收藏帖子
@@ -200,36 +176,37 @@ export const forumApi = {
     },
 
     /**
-     * 切换帖子收藏状态
+     * 切换帖子收藏状态（根据当前状态切换）
      */
-    togglePostStar: async (postId: string): Promise<{ is_starred: boolean }> => {
-        const isStarred = await forumApi.checkPostStar(postId)
-
-        if (isStarred) {
+    togglePostStar: async (postId: string, currentStarred: boolean): Promise<{ is_starred: boolean }> => {
+        if (currentStarred) {
             await forumApi.unstarPost(postId)
         } else {
             await forumApi.starPost(postId)
         }
 
-        return { is_starred: !isStarred }
+        return { is_starred: !currentStarred }
     },
 
     /**
      * 获取收藏列表
      */
-    getBookmarks: async (params?: { offset?: number; limit?: number }): Promise<{ posts: Post[]; pagination: Pagination }> => {
-        const limit = params?.limit || 20
-        const offset = params?.offset || 0
+    getBookmarks: async (params?: {
+        page?: number
+        page_size?: number
+    }): Promise<{ posts: Post[]; pagination: Pagination }> => {
+        const page = params?.page || 1
+        const page_size = params?.page_size || 20
 
         const res = await request.get<GetBookmarksResponse>('/api/v1/forum/posts/starred', {
-            params: { offset, limit },
+            params: { page, page_size },
         })
 
         const posts = (res.data || []).map(mapPostWithAuthor)
 
         return {
             posts,
-            pagination: calculatePagination(offset, limit, posts.length),
+            pagination: mapPagination(res.pagination || { page, page_size }),
         }
     },
 
@@ -238,19 +215,22 @@ export const forumApi = {
     /**
      * 获取帖子下的回复列表
      */
-    getReplies: async (postId: string, params?: GetRepliesParams): Promise<{ replies: Reply[]; pagination: Pagination }> => {
-        const limit = params?.limit || 10
-        const offset = params?.offset || 0
+    getReplies: async (
+        postId: string,
+        params?: GetRepliesParams,
+    ): Promise<{ replies: Reply[]; pagination: Pagination }> => {
+        const page = params?.page || 1
+        const page_size = params?.page_size || 20
 
         const res = await request.get<GetRepliesResponse>(`/api/v1/forum/posts/${postId}/replies`, {
-            params: { offset, limit },
+            params: { page, page_size },
         })
 
         const replies = (res.data || []).map(mapReplyWithAuthor)
 
         return {
             replies,
-            pagination: calculatePagination(offset, limit, replies.length),
+            pagination: mapPagination(res.pagination || { page, page_size }),
         }
     },
 
@@ -280,14 +260,6 @@ export const forumApi = {
     // ============ 回复点赞相关 ============
 
     /**
-     * 查询用户是否点赞了回复
-     */
-    checkReplyLike: async (replyId: string): Promise<boolean> => {
-        const res = await request.get<LikeQueryResponse>(`/api/v1/forum/replies/like/${replyId}`)
-        return res.data.liked
-    },
-
-    /**
      * 点赞回复
      */
     likeReply: async (replyId: string): Promise<void> => {
@@ -302,18 +274,16 @@ export const forumApi = {
     },
 
     /**
-     * 切换回复点赞状态
+     * 切换回复点赞状态（根据当前状态切换）
      */
-    toggleReplyLike: async (replyId: string): Promise<{ is_liked: boolean }> => {
-        const isLiked = await forumApi.checkReplyLike(replyId)
-
-        if (isLiked) {
+    toggleReplyLike: async (replyId: string, currentLiked: boolean): Promise<{ is_liked: boolean }> => {
+        if (currentLiked) {
             await forumApi.unlikeReply(replyId)
         } else {
             await forumApi.likeReply(replyId)
         }
 
-        return { is_liked: !isLiked }
+        return { is_liked: !currentLiked }
     },
 
     // ============ 其他 ============
@@ -340,6 +310,30 @@ export const forumApi = {
         )
 
         return { image_url: res.data.image_url }
+    },
+
+    /**
+     * 搜索帖子
+     */
+    searchPosts: async (params: SearchPostsParams): Promise<{ posts: Post[]; pagination: Pagination }> => {
+        const page = params.page || 1
+        const page_size = params.page_size || 20
+        const sort = params.sort || 1
+
+        const res = await request.post<SearchPostsResponse>('/api/v1/forum/search', {
+            query: params.query,
+            tags: params.tags || [],
+            page,
+            page_size,
+            sort,
+        })
+
+        const posts = (res.data || []).map(mapPostWithAuthor)
+
+        return {
+            posts,
+            pagination: mapPagination(res.pagination || { page, page_size }),
+        }
     },
 
     /**
