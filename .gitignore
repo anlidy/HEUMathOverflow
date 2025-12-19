@@ -1,3 +1,4 @@
 /backend/**/.env
 /backend/docker/**/data/**
 **/__pycache__/**
+frontend/node_modules/
