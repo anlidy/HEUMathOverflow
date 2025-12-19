@@ -148,6 +148,46 @@ Response:
 }
 ```
 
+#### 1.7. 退出登录
+
+- 请求方法: POST
+- 相对路径: /logout
+
+需要已登录状态, 后端从 Cookie 中读取 `session-id` 并清除会话与 Cookie。
+
+```ts
+POST /api/v1/user/logout
+
+Response:
+{
+  "code": int,
+  "message": string
+}
+```
+
+#### 1.8. 注销账号
+
+- 请求方法: DELETE
+- 相对路径: /account
+
+需要已登录状态, 并校验当前账号密码, 注销成功后会同时删除账号与当前登录会话。
+
+```ts
+DELETE /api/v1/user/account
+Content-Type: application/json
+
+Request:
+{
+  "password": string
+}
+
+Response:
+{
+  "code": int,
+  "message": string
+}
+```
+
 ### ForumService：论坛相关服务模块
 
 #### 根路径: /api/v1/forum

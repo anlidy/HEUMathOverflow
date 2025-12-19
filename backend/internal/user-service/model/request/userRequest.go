@@ -27,3 +27,7 @@ type UserRole struct {
 	ID      int64      `json:"id,string" binding:"required"`
 	NewRole model.Role `json:"new_role,string" binding:"required"`
 }
+
+type UserDelete struct {
+	Password string `json:"password" binding:"required"`
+}
