@@ -223,12 +223,13 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 	}
 
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的views+1
+		var ctx = context.Background()
 		if err := s.postRepo.IncreasePostStat(ctx, postID, "views"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post views failed")
 		}
-	}(ctx)
+	}()
 
 	return userInfo, postData, syserror.NoError
 }
@@ -473,12 +474,13 @@ func (s *postService) LikeOnePost(ctx context.Context, postID, userID int64) sys
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的likes+1
+		var ctx = context.Background()
 		if err := s.postRepo.IncreasePostStat(ctx, postID, "likes"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post likes failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -494,12 +496,13 @@ func (s *postService) CancelLikeOnePost(ctx context.Context, postID, userID int6
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的likes-1
+		var ctx = context.Background()
 		if err := s.postRepo.DecreasePostStat(ctx, postID, "likes"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post likes failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -524,12 +527,13 @@ func (s *postService) StarOnePost(ctx context.Context, postID, userID int64) sys
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的stars+1
+		var ctx = context.Background()
 		if err := s.postRepo.IncreasePostStat(ctx, postID, "stars"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post stars failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -545,12 +549,13 @@ func (s *postService) CancelStarOnePost(ctx context.Context, postID, userID int6
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的stars-1
+		var ctx = context.Background()
 		if err := s.postRepo.DecreasePostStat(ctx, postID, "stars"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post stars failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 

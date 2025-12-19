@@ -127,12 +127,13 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 		return -1, syserror.InternalError
 	}
 	// 后台同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的replies+1
+		var ctx = context.Background()
 		if err := s.replyRepo.IncreasePostReplies(ctx, req.PostID); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post replies failed")
 		}
-	}(ctx)
+	}()
 	return replyID, syserror.NoError
 }
 
@@ -305,7 +306,8 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 	}
 
 	// 后台删除图片
-	go func(ctx context.Context) {
+	go func() {
+		var ctx = context.Background()
 		for _, delUrl := range append(req.DeleteImageURLs, oldVoiceURL) {
 			filename := strings.TrimPrefix(delUrl, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
 			if err := s.fileRepo.DeleteFile(ctx, filename); err != nil {
@@ -317,7 +319,7 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 				return
 			}
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -377,7 +379,8 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 	}
 
 	// 后台删除回帖包含的文件
-	go func(ctx context.Context) {
+	go func() {
+		var ctx = context.Background()
 		urls := append(reply.ImageURLs, reply.VoiceURL)
 		for _, url := range urls {
 			filename := strings.TrimPrefix(url, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
@@ -390,14 +393,15 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 				return
 			}
 		}
-	}(ctx)
+	}()
 	// 后台同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的replies-1
+		var ctx = context.Background()
 		if err := s.replyRepo.DecreasePostReplies(ctx, reply.PostID); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post replies failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 

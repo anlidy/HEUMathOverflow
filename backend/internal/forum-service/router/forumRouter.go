@@ -20,7 +20,7 @@ func SetupRouter(rdb *redis.Client,
 		middleware.RequestIDMiddleware(),
 		middleware.MetricsMiddleware("forum-service"),
 		middleware.LoggingMiddleware(),
-		middleware.CorsMiddleware([]string{"http://localhost:3000", "https://math-overflow.edu"}),
+		middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"}),
 	)
 
 	// Prometheus metrics endpoint
