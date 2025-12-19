@@ -157,6 +157,7 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (
 		return nil, nil, syserror.NetworkError
 	}
 	// 调用 UserService
+	var userDeleted = false
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: reply.ReplierID})
 	if err != nil {
 		logger.WithError(err).Error("call GetUserInfo failed")
@@ -166,20 +167,25 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (
 			return nil, nil, syserror.NetworkError
 		}
 		switch st.Code() {
+		case codes.NotFound:
+			userDeleted = true
 		case codes.Internal:
 			return nil, nil, syserror.InternalError
-		case codes.NotFound:
-			return nil, nil, syserror.NotFoundError
 		case codes.Canceled:
 			return nil, nil, syserror.NetworkError
 		}
 	}
 	// 请求成功
 	var userInfo = &response.UserInfo{
-		ID:        resp.UserId,
-		Username:  resp.Username,
-		Role:      int(resp.Role),
-		AvatarUrl: resp.AvatarUrl,
+		Username: "用户已注销",
+	}
+	if !userDeleted {
+		userInfo = &response.UserInfo{
+			ID:        resp.UserId,
+			Username:  resp.Username,
+			Role:      int(resp.Role),
+			AvatarUrl: resp.AvatarUrl,
+		}
 	}
 	// 聚合返回查询结果
 	replyData := &response.ReplyData{
@@ -238,12 +244,17 @@ func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64,
 	// 聚合返回查询结果
 	replyDatas := make([]response.MultiReplyData, len(replies))
 	for i := range replies {
-		var user = userMap[replies[i].ReplierID] // 不存在的用户查询得到空值
-		replyDatas[i].UserInfo = response.UserInfo{
-			ID:        user.UserId,
-			Username:  user.Username,
-			Role:      int(user.Role),
-			AvatarUrl: user.AvatarUrl,
+		if user, ok := userMap[replies[i].ReplierID]; ok {
+			replyDatas[i].UserInfo = response.UserInfo{
+				ID:        user.UserId,
+				Username:  user.Username,
+				Role:      int(user.Role),
+				AvatarUrl: user.AvatarUrl,
+			}
+		} else {
+			replyDatas[i].UserInfo = response.UserInfo{
+				Username: "用户已注销",
+			}
 		}
 		replyDatas[i].ReplyData.Reply = replies[i].Reply
 		replyDatas[i].ReplyData.Liked = replies[i].Liked

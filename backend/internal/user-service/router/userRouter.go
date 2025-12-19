@@ -34,9 +34,11 @@ func SetupRouter(rdb *redis.Client, uc controller.UserController) *gin.Engine {
 	// 需要鉴权
 	authUser := user.Group("")
 	authUser.Use(middleware.AuthMiddleware(rdb))
+	authUser.POST("/logout", uc.UserLogout)
 	authUser.POST("/avatar", uc.UserUploadAvatar)
 	authUser.PATCH("/profile", uc.UserUploadProfie)
 	authUser.PATCH("/password", uc.UserUpdatePassword)
+	authUser.DELETE("/account", uc.UserDeleteAccount)
 
 	return r
 }
