@@ -127,12 +127,13 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 		return -1, syserror.InternalError
 	}
 	// 后台同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的replies+1
+		var ctx = context.Background()
 		if err := s.replyRepo.IncreasePostReplies(ctx, req.PostID); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post replies failed")
 		}
-	}(ctx)
+	}()
 	return replyID, syserror.NoError
 }
 
@@ -156,6 +157,7 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (
 		return nil, nil, syserror.NetworkError
 	}
 	// 调用 UserService
+	var userDeleted = false
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: reply.ReplierID})
 	if err != nil {
 		logger.WithError(err).Error("call GetUserInfo failed")
@@ -165,20 +167,25 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (
 			return nil, nil, syserror.NetworkError
 		}
 		switch st.Code() {
+		case codes.NotFound:
+			userDeleted = true
 		case codes.Internal:
 			return nil, nil, syserror.InternalError
-		case codes.NotFound:
-			return nil, nil, syserror.NotFoundError
 		case codes.Canceled:
 			return nil, nil, syserror.NetworkError
 		}
 	}
 	// 请求成功
 	var userInfo = &response.UserInfo{
-		ID:        resp.UserId,
-		Username:  resp.Username,
-		Role:      int(resp.Role),
-		AvatarUrl: resp.AvatarUrl,
+		Username: "用户已注销",
+	}
+	if !userDeleted {
+		userInfo = &response.UserInfo{
+			ID:        resp.UserId,
+			Username:  resp.Username,
+			Role:      int(resp.Role),
+			AvatarUrl: resp.AvatarUrl,
+		}
 	}
 	// 聚合返回查询结果
 	replyData := &response.ReplyData{
@@ -237,12 +244,17 @@ func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64,
 	// 聚合返回查询结果
 	replyDatas := make([]response.MultiReplyData, len(replies))
 	for i := range replies {
-		var user = userMap[replies[i].ReplierID] // 不存在的用户查询得到空值
-		replyDatas[i].UserInfo = response.UserInfo{
-			ID:        user.UserId,
-			Username:  user.Username,
-			Role:      int(user.Role),
-			AvatarUrl: user.AvatarUrl,
+		if user, ok := userMap[replies[i].ReplierID]; ok {
+			replyDatas[i].UserInfo = response.UserInfo{
+				ID:        user.UserId,
+				Username:  user.Username,
+				Role:      int(user.Role),
+				AvatarUrl: user.AvatarUrl,
+			}
+		} else {
+			replyDatas[i].UserInfo = response.UserInfo{
+				Username: "用户已注销",
+			}
 		}
 		replyDatas[i].ReplyData.Reply = replies[i].Reply
 		replyDatas[i].ReplyData.Liked = replies[i].Liked
@@ -305,7 +317,8 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 	}
 
 	// 后台删除图片
-	go func(ctx context.Context) {
+	go func() {
+		var ctx = context.Background()
 		for _, delUrl := range append(req.DeleteImageURLs, oldVoiceURL) {
 			filename := strings.TrimPrefix(delUrl, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
 			if err := s.fileRepo.DeleteFile(ctx, filename); err != nil {
@@ -317,7 +330,7 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 				return
 			}
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -377,7 +390,8 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 	}
 
 	// 后台删除回帖包含的文件
-	go func(ctx context.Context) {
+	go func() {
+		var ctx = context.Background()
 		urls := append(reply.ImageURLs, reply.VoiceURL)
 		for _, url := range urls {
 			filename := strings.TrimPrefix(url, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
@@ -390,14 +404,15 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 				return
 			}
 		}
-	}(ctx)
+	}()
 	// 后台同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的replies-1
+		var ctx = context.Background()
 		if err := s.replyRepo.DecreasePostReplies(ctx, reply.PostID); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post replies failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 

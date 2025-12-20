@@ -40,9 +40,12 @@ func (sc *SearchController) SearchPosts(c *gin.Context) {
 	case syserror.NetworkError:
 		api.JSON(c).Code(http.StatusInternalServerError).Message("服务器网络异常,请稍后重试").Send()
 		return
+	case syserror.NotFoundError:
+		api.JSON(c).Code(http.StatusOK).Message("搜索完成").Data(result).Pagination(page, size, total).Send()
+		return
 	case syserror.InternalError:
 		api.JSON(c).Code(http.StatusInternalServerError).Message("搜索失败").Send()
 		return
 	}
-	api.JSON(c).Code(http.StatusOK).Message("搜索完成").Data(result).Pagination(page, size, int(total)).Send()
+	api.JSON(c).Code(http.StatusOK).Message("搜索完成").Data(result).Pagination(page, size, total).Send()
 }

@@ -187,6 +187,7 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 		return nil, nil, syserror.NetworkError
 	}
 	// 调用 UserService
+	var userDeleted = false
 	resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: post.AuthorID})
 	if err != nil {
 		logger.WithError(err).Error("call GetUserInfo failed")
@@ -199,7 +200,7 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 		case codes.Internal:
 			return nil, nil, syserror.InternalError
 		case codes.NotFound:
-			return nil, nil, syserror.NotFoundError
+			userDeleted = true
 		case codes.Canceled:
 			return nil, nil, syserror.NetworkError
 		default:
@@ -209,10 +210,15 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 	}
 	// 请求成功
 	var userInfo = &response.UserInfo{
-		ID:        resp.UserId,
-		Username:  resp.Username,
-		Role:      int(resp.Role),
-		AvatarUrl: resp.AvatarUrl,
+		Username: "用户已注销",
+	}
+	if !userDeleted {
+		userInfo = &response.UserInfo{
+			ID:        resp.UserId,
+			Username:  resp.Username,
+			Role:      int(resp.Role),
+			AvatarUrl: resp.AvatarUrl,
+		}
 	}
 
 	// 聚合返回查询结果
@@ -223,12 +229,13 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 	}
 
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的views+1
+		var ctx = context.Background()
 		if err := s.postRepo.IncreasePostStat(ctx, postID, "views"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post views failed")
 		}
-	}(ctx)
+	}()
 
 	return userInfo, postData, syserror.NoError
 }
@@ -277,12 +284,17 @@ func (s *postService) GetManyPosts(ctx context.Context, page, limit int, order m
 	// 聚合返回查询结果
 	postDatas := make([]response.MultiPostData, len(posts))
 	for i := range posts {
-		var user = userMap[posts[i].AuthorID] // 不存在的用户查询得到空值
-		postDatas[i].UserInfo = response.UserInfo{
-			ID:        user.UserId,
-			Username:  user.Username,
-			Role:      int(user.Role),
-			AvatarUrl: user.AvatarUrl,
+		if user, ok := userMap[posts[i].AuthorID]; ok {
+			postDatas[i].UserInfo = response.UserInfo{
+				ID:        user.UserId,
+				Username:  user.Username,
+				Role:      int(user.Role),
+				AvatarUrl: user.AvatarUrl,
+			}
+		} else {
+			postDatas[i].UserInfo = response.UserInfo{
+				Username: "用户已注销",
+			}
 		}
 		postDatas[i].PostData.Post = posts[i]
 	}
@@ -473,12 +485,13 @@ func (s *postService) LikeOnePost(ctx context.Context, postID, userID int64) sys
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的likes+1
+		var ctx = context.Background()
 		if err := s.postRepo.IncreasePostStat(ctx, postID, "likes"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post likes failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -494,12 +507,13 @@ func (s *postService) CancelLikeOnePost(ctx context.Context, postID, userID int6
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的likes-1
+		var ctx = context.Background()
 		if err := s.postRepo.DecreasePostStat(ctx, postID, "likes"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post likes failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -524,12 +538,13 @@ func (s *postService) StarOnePost(ctx context.Context, postID, userID int64) sys
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的stars+1
+		var ctx = context.Background()
 		if err := s.postRepo.IncreasePostStat(ctx, postID, "stars"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post stars failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -545,12 +560,13 @@ func (s *postService) CancelStarOnePost(ctx context.Context, postID, userID int6
 		return syserror.InternalError
 	}
 	// 后台完成同步
-	go func(ctx context.Context) {
+	go func() {
 		// redis的stars-1
+		var ctx = context.Background()
 		if err := s.postRepo.DecreasePostStat(ctx, postID, "stars"); err != nil {
 			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post stars failed")
 		}
-	}(ctx)
+	}()
 	return syserror.NoError
 }
 
@@ -605,12 +621,17 @@ func (s *postService) GetUserStarredPosts(ctx context.Context, userID int64, pag
 	var userMap = resp.Users
 	postDatas := make([]response.MultiPostData, len(posts))
 	for i := range posts {
-		var user = userMap[posts[i].AuthorID]
-		postDatas[i].UserInfo = response.UserInfo{
-			ID:        user.UserId,
-			Username:  user.Username,
-			Role:      int(user.Role),
-			AvatarUrl: user.AvatarUrl,
+		if user, ok := userMap[posts[i].AuthorID]; ok {
+			postDatas[i].UserInfo = response.UserInfo{
+				ID:        user.UserId,
+				Username:  user.Username,
+				Role:      int(user.Role),
+				AvatarUrl: user.AvatarUrl,
+			}
+		} else {
+			postDatas[i].UserInfo = response.UserInfo{
+				Username: "用户已注销",
+			}
 		}
 		postDatas[i].PostData.Post = posts[i]
 	}

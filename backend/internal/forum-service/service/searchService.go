@@ -85,6 +85,11 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 	defer res.Body.Close()
 
 	if res.IsError() {
+		if res.StatusCode == 404 {
+			// 索引不存在 → 当成“无数据”
+			logger.WithField("status", res.Status()).Warn("es index does not build yet")
+			return []response.MultiPostData{}, 0, syserror.NotFoundError
+		}
 		logger.WithField("status", res.Status()).Error("es search response error")
 		return nil, 0, syserror.InternalError
 	}
@@ -145,13 +150,19 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 	var idx = 0
 	for _, pid := range postIDs {
 		if post, ok := postMap[pid]; ok {
-			var user = userMap[post.AuthorID] // 不存在的用户查询得到空值
-			postDatas[idx].UserInfo = response.UserInfo{
-				ID:        user.UserId,
-				Username:  user.Username,
-				Role:      int(user.Role),
-				AvatarUrl: user.AvatarUrl,
+			if user, ok := userMap[post.AuthorID]; ok {
+				postDatas[idx].UserInfo = response.UserInfo{
+					ID:        user.UserId,
+					Username:  user.Username,
+					Role:      int(user.Role),
+					AvatarUrl: user.AvatarUrl,
+				}
+			} else {
+				postDatas[idx].UserInfo = response.UserInfo{
+					Username: "用户已注销",
+				}
 			}
+
 			postDatas[idx].PostData.Post = post
 			idx++
 		}
