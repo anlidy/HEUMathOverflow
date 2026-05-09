@@ -3,29 +3,36 @@ package repository
 import (
 	"MathOverflow/internal/forum-service/model"
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type PostRepo interface {
 	CreatePost(post *model.Post) error
+	FindPostByID(postID int64) (model.Post, error)
 	// FindPostByID(postID int64) (model.Post, error)
 	FindPostDetail(postID, userID int64) (model.PostDetail, error)
-	FindManyPosts(offset, limit int, order model.OrderBy) ([]model.Post, error)
+	FindPostFlags(postID, userID int64) (bool, bool, error)
+	FindManyPosts(ctx context.Context, offset, limit int, order model.OrderBy) ([]model.Post, error)
 	FindPostMapByIDs(postIDs []int64) (map[int64]model.Post, error)
 	UpdateColumn(postID int64, column string, value any) (bool, error)
 	UpdatePost(post *model.Post) (bool, error)
 	DeletePost(postID int64) error
-	CreatePostLike(pl *model.PostLike) error
-	DeletePostLike(userID, postID int64) error
-	CreatePostStar(pl *model.PostStar) error
-	DeletePostStar(userID, postID int64) error
+	CreatePostLike(pl *model.PostLike) (bool, error)
+	DeletePostLike(userID, postID int64) (bool, error)
+	CreatePostStar(pl *model.PostStar) (bool, error)
+	DeletePostStar(userID, postID int64) (bool, error)
+	HasPostStar(userID, postID int64) (bool, error)
 	FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, int64, error)
 	// redis
 	IncreasePostStat(ctx context.Context, postID int64, attr string) error
 	DecreasePostStat(ctx context.Context, postID int64, attr string) error
+	BumpHottestCacheVersion(ctx context.Context) error
 }
 
 type postRepo struct {
@@ -40,6 +47,12 @@ func NewPostRepository(pg *gorm.DB, rdb *redis.Client) PostRepo {
 // pg创建帖子记录
 func (r *postRepo) CreatePost(post *model.Post) error {
 	return r.pg.Model(&model.Post{}).Create(post).Error
+}
+
+func (r *postRepo) FindPostByID(postID int64) (model.Post, error) {
+	var result model.Post
+	err := r.pg.Model(&model.Post{}).Where("id = ?", postID).First(&result).Error
+	return result, err
 }
 
 // // 根据postID查询帖子
@@ -67,8 +80,22 @@ func (r *postRepo) FindPostDetail(postID, userID int64) (model.PostDetail, error
 	return result, err
 }
 
+func (r *postRepo) FindPostFlags(postID, userID int64) (bool, bool, error) {
+	type flags struct {
+		Liked   bool `gorm:"column:liked"`
+		Starred bool `gorm:"column:starred"`
+	}
+	var f flags
+	err := r.pg.Raw(`
+        SELECT
+            EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = ? AND pl.user_id = ?) AS liked,
+            EXISTS(SELECT 1 FROM post_stars ps WHERE ps.post_id = ? AND ps.user_id = ?) AS starred
+    `, postID, userID, postID, userID).Scan(&f).Error
+	return f.Liked, f.Starred, err
+}
+
 // 查询多条帖子
-func (r *postRepo) FindManyPosts(offset, limit int, order model.OrderBy) ([]model.Post, error) {
+func (r *postRepo) FindManyPosts(ctx context.Context, offset, limit int, order model.OrderBy) ([]model.Post, error) {
 	var results []model.Post
 	var orderStr string
 	switch order {
@@ -80,6 +107,34 @@ func (r *postRepo) FindManyPosts(offset, limit int, order model.OrderBy) ([]mode
 		orderStr = `(views * 0.1 + likes * 3 + replies * 4 + stars * 5 + status * 10) 
 		/ pow(EXTRACT(EPOCH FROM (now() - created_at)) / 3600 + 2, 1.5) DESC`
 	}
+
+	// 热门帖子（热点接口）走 redis 缓存，减少高频排序查询压力
+	if order == model.Hottest && r.rdb != nil && ctx != nil && offset >= 0 && offset <= 2000 && limit > 0 {
+		ver, err := r.rdb.Get(ctx, HottestPostsCacheVersionKey).Int64()
+		if err == redis.Nil {
+			ver = 1
+			_ = r.rdb.Set(ctx, HottestPostsCacheVersionKey, "1", 0).Err()
+		} else if err != nil {
+			ver = 0
+		}
+		if ver > 0 {
+			cacheKey := fmt.Sprintf("forum:posts:hottest:v%d:o%d:l%d", ver, offset, limit)
+			if raw, err := r.rdb.Get(ctx, cacheKey).Bytes(); err == nil && len(raw) > 0 {
+				if e := json.Unmarshal(raw, &results); e == nil {
+					return results, nil
+				}
+			}
+			err = r.pg.Offset(offset).Limit(limit).Order(orderStr).Find(&results).Error
+			if err != nil {
+				return results, err
+			}
+			if raw, e := json.Marshal(results); e == nil {
+				_ = r.rdb.Set(ctx, cacheKey, raw, 30*time.Second).Err()
+			}
+			return results, nil
+		}
+	}
+
 	err := r.pg.Offset(offset).Limit(limit).Order(orderStr).Find(&results).Error
 	return results, err
 }
@@ -138,38 +193,41 @@ func (r *postRepo) DeletePost(postID int64) error {
 
 // / 点赞接口
 // 创建点赞记录
-func (r *postRepo) CreatePostLike(pl *model.PostLike) error {
-	return r.pg.Model(&model.PostLike{}).Create(pl).Error
+func (r *postRepo) CreatePostLike(pl *model.PostLike) (bool, error) {
+	result := r.pg.Model(&model.PostLike{}).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(pl)
+	return result.RowsAffected > 0, result.Error
 }
 
 // 删除点赞记录
-func (r *postRepo) DeletePostLike(userID, postID int64) error {
+func (r *postRepo) DeletePostLike(userID, postID int64) (bool, error) {
 	result := r.pg.Where("user_id = ? AND post_id = ?", userID, postID).Delete(&model.PostLike{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+	return result.RowsAffected > 0, result.Error
 }
 
 // / 收藏接口
 // 创建收藏记录
-func (r *postRepo) CreatePostStar(pl *model.PostStar) error {
-	return r.pg.Model(&model.PostStar{}).Create(pl).Error
+func (r *postRepo) CreatePostStar(pl *model.PostStar) (bool, error) {
+	result := r.pg.Model(&model.PostStar{}).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(pl)
+	return result.RowsAffected > 0, result.Error
 }
 
 // 删除点赞记录
-func (r *postRepo) DeletePostStar(userID, postID int64) error {
+func (r *postRepo) DeletePostStar(userID, postID int64) (bool, error) {
 	result := r.pg.Where("user_id = ? AND post_id = ?", userID, postID).Delete(&model.PostStar{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+	return result.RowsAffected > 0, result.Error
+}
+
+func (r *postRepo) HasPostStar(userID, postID int64) (bool, error) {
+	var count int64
+	err := r.pg.Model(&model.PostStar{}).
+		Where("user_id = ? AND post_id = ?", userID, postID).
+		Limit(1).
+		Count(&count).Error
+	return count > 0, err
 }
 
 // 查询用户收藏的帖子（分页，按收藏时间倒序）
@@ -214,4 +272,14 @@ func (r *postRepo) DecreasePostStat(ctx context.Context, postID int64, attr stri
 	}
 
 	return nil
+}
+
+func (r *postRepo) BumpHottestCacheVersion(ctx context.Context) error {
+	if r == nil || r.rdb == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return r.rdb.Incr(ctx, HottestPostsCacheVersionKey).Err()
 }

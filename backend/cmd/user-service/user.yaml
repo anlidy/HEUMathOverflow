@@ -24,3 +24,10 @@ redis:
 
 grpc:
   expose_port: 50051
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: rabbitadmin
+  password: rabbitadmin
+  post_worker_count: 1

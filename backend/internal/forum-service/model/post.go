@@ -7,12 +7,11 @@ import (
 )
 
 // 帖子状态
-type PostStatus int
+type AnswerStatus int
 
 const (
-	Unanswered PostStatus = iota + 1 // 未回答
-	Answered                         // 已回答
-	Certified                        // 已认证
+	Unanswered AnswerStatus = iota + 1 // 未回答
+	Answered                           // 已回答
 )
 
 // 排序类型
@@ -32,12 +31,13 @@ type Post struct {
 	Content     string         `gorm:"type:text" json:"content"`
 	ImageURLs   pq.StringArray `gorm:"type:varchar(128)[]" json:"image_urls"`
 	Tags        pq.StringArray `gorm:"type:varchar(32)[]" json:"tags"`
-	Status      PostStatus     `gorm:"not null" json:"status"`
-	Views       int64          `json:"views"`         // 浏览量
-	Likes       int64          `json:"likes"`         // 赞同数
-	Stars       int64          `json:"stars"`         // 收藏数
-	Replies     int64          `json:"replies"`       // 评论数
-	LastReplyAt *time.Time     `json:"last_reply_at"` // 指针类型便于判空
+	Status      AnswerStatus   `gorm:"not null" json:"status"`
+	IsCertified bool           `gorm:"not null" json:"is_certified"` //是否精选
+	Views       int64          `json:"views"`                        // 浏览量
+	Likes       int64          `json:"likes"`                        // 赞同数
+	Stars       int64          `json:"stars"`                        // 收藏数
+	Replies     int64          `json:"replies"`                      // 评论数
+	LastReplyAt *time.Time     `json:"last_reply_at"`                // 指针类型便于判空
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -52,11 +52,11 @@ type PostLike struct {
 
 // 存储用户对帖子的收藏行为
 type PostStar struct {
-	ID        int64  `gorm:"primaryKey"`
-	PostID    *int64 `gorm:"index"` // 可以为 NULL
-	UserID    int64  `gorm:"index"`
-	CreatedAt time.Time
-	Post      Post `gorm:"foreignKey:PostID;references:ID;constraint:OnDelete:SET NULL;"`
+	ID        int64     `gorm:"primaryKey"`
+	PostID    *int64    `gorm:"index"` // 可以为 NULL
+	UserID    int64     `gorm:"index"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	Post      Post      `gorm:"foreignKey:PostID;references:ID;constraint:OnDelete:SET NULL;"`
 }
 
 // redis缓存帖子的高频数据

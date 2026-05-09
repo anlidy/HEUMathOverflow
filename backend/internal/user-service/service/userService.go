@@ -1,7 +1,9 @@
 package service
 
 import (
+	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
+	"MathOverflow/internal/common/event"
 	common "MathOverflow/internal/common/model"
 	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/user-service/model"
@@ -38,11 +40,27 @@ type userService struct {
 	userRepo    repository.UserRepo
 	sessionRepo repository.SessionRepo
 	fileRepo    repository.FileRepo
+	mq          *client.RabbitMQClient
 	servName    string
 }
 
-func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo repository.SessionRepo, fileRepo repository.FileRepo) UserService {
-	return &userService{cfg: cfg, userRepo: userRepo, sessionRepo: sessionRepo, fileRepo: fileRepo, servName: "User-Service"}
+func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo repository.SessionRepo, fileRepo repository.FileRepo, mq *client.RabbitMQClient) UserService {
+	return &userService{cfg: cfg, userRepo: userRepo, sessionRepo: sessionRepo, fileRepo: fileRepo, mq: mq, servName: "User-Service"}
+}
+
+func (s *userService) publishUserUpsert(u model.User) {
+	event.PublishUserEvent(s.mq, event.UserUpserted, event.UserPayload{
+		UserID:    u.ID,
+		Username:  u.Username,
+		Role:      int64(u.Role),
+		AvatarURL: u.AvatarUrl,
+	})
+}
+
+func (s *userService) publishUserDeleted(userID int64) {
+	event.PublishUserEvent(s.mq, event.UserDeleted, event.UserPayload{
+		UserID: userID,
+	})
 }
 
 // 获取单个用户信息
@@ -124,6 +142,9 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 		logger.WithError(err).Error("create user failed")
 		return nil, nil, syserror.InternalError
 	}
+
+	// 发布用户 upsert 事件（供其它服务异步冗余用户信息）
+	s.publishUserUpsert(user)
 
 	// 将sessionID -> Session 存入redis
 	var sessionID = utils.GenerateUUID()
@@ -248,6 +269,9 @@ func (s *userService) UserDeleteAccount(ctx context.Context, userID int64, passw
 		return syserror.InternalError
 	}
 
+	// 发布用户删除事件
+	s.publishUserDeleted(userID)
+
 	// 删除当前会话（如果失败，仅记录日志，不影响注销结果）
 	session := model.Session{
 		SessionID: sessionID,
@@ -278,6 +302,11 @@ func (s *userService) UserUploadAvatar(ctx context.Context, userID int64, file c
 			logger.WithError(err).Error("delete avatar file failed")
 		}
 		return "", syserror.InternalError
+	}
+
+	// 查询最新用户信息并发布 upsert 事件
+	if u, err := s.userRepo.FindUserByID(userID); err == nil {
+		s.publishUserUpsert(u)
 	}
 	return url, syserror.NoError
 }
@@ -324,6 +353,9 @@ func (s *userService) UserUpdateProfie(ctx context.Context, userID int64, req re
 		logger.WithError(err).Error("update user failed")
 		return syserror.InternalError
 	}
+
+	// 发布用户 upsert 事件（用户名、角色、头像等冗余信息）
+	s.publishUserUpsert(user)
 	return syserror.NoError
 }
 
@@ -389,6 +421,9 @@ func (s *userService) UpdateUserRole(ctx context.Context, opID int64, req reques
 	if err != nil {
 		return syserror.InternalError
 	}
+
+	// 发布用户 upsert 事件（角色变更需要下游同步）
+	s.publishUserUpsert(target)
 
 	return syserror.NoError
 }

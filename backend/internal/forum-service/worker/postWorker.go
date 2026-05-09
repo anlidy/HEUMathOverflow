@@ -5,6 +5,7 @@ import (
 	"MathOverflow/internal/common/event"
 	"MathOverflow/internal/common/utils"
 	"MathOverflow/internal/forum-service/model"
+	"MathOverflow/internal/forum-service/repository"
 	"context"
 	"fmt"
 	"strconv"
@@ -80,6 +81,7 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 	if err != nil {
 		return scanCursor
 	}
+	wroteAny := false
 	for _, key := range keys {
 		// 从redis读取对应key的增量
 		stat, err := w.getPostStat(ctx, key)
@@ -99,6 +101,7 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 			utils.Logger().WithField("worker", w.name).WithError(err).Error("write back post stat to postgres failed")
 			continue
 		}
+		wroteAny = true
 		// 发布PostStat事件
 		var evt = event.ForumPostPayload{
 			PostID:  stat.PostID,
@@ -114,6 +117,9 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 			utils.Logger().WithField("worker", w.name).WithField("key", key).WithError(err).Error("delete post stat from redis failed")
 			continue
 		}
+	}
+	if wroteAny {
+		_ = w.rdb.Incr(ctx, repository.HottestPostsCacheVersionKey).Err()
 	}
 	return scanCursor
 }

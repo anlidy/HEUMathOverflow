@@ -13,6 +13,7 @@ import (
 type RabbitMQClient struct {
 	Conn            *amqp.Connection
 	PostWorkerCount int64
+	RagWorkerCount  int64
 	breaker         *utils.CircuitBreaker
 }
 
@@ -21,6 +22,7 @@ const (
 	exchangeType    = "topic"
 	postDLQExchange = "app.events.dlx"
 	postDLQName     = "es.post.events.dlq"
+	userDLQName     = "forum.user.events.dlq"
 )
 
 // InitRabbitMQ 初始化 RabbitMQ 客户端，包含连接与默认通道
@@ -39,10 +41,13 @@ func InitRabbitMQ(cfg config.RabbitMQConfig) (*RabbitMQClient, error) {
 		conn, err = amqp.Dial(uri)
 		if err == nil {
 			fmt.Println("RabbitMQ connected:", uri)
-			utils.Logger().WithField("post_worker_count", cfg.PostWorkerCount).Info("RabbitMQ connected")
+			utils.Logger().WithField("post_worker_count", cfg.PostWorkerCount).
+				WithField("rag_worker_count", cfg.RagWorkerCount).
+				Info("RabbitMQ connected")
 			mq := &RabbitMQClient{
 				Conn:            conn,
 				PostWorkerCount: cfg.PostWorkerCount,
+				RagWorkerCount:  cfg.RagWorkerCount,
 				breaker:         utils.NewCircuitBreaker(5, 5*time.Second),
 			}
 
@@ -86,6 +91,31 @@ func InitRabbitMQ(cfg config.RabbitMQConfig) (*RabbitMQClient, error) {
 				nil,
 			); err != nil {
 				utils.Logger().WithError(err).Error("bind dead-letter queue failed")
+				_ = ch.Close()
+				return mq, nil
+			}
+
+			// 声明一个通用的 User DLQ，用于接收 user 事件消费失败的消息（幂等）
+			if _, err := ch.QueueDeclare(
+				userDLQName,
+				true,
+				false,
+				false,
+				false,
+				nil,
+			); err != nil {
+				utils.Logger().WithError(err).Error("declare user dead-letter queue failed")
+				_ = ch.Close()
+				return mq, nil
+			}
+			if err := ch.QueueBind(
+				userDLQName,
+				userDLQName,
+				postDLQExchange,
+				false,
+				nil,
+			); err != nil {
+				utils.Logger().WithError(err).Error("bind user dead-letter queue failed")
 				_ = ch.Close()
 				return mq, nil
 			}
@@ -178,8 +208,8 @@ func (c *RabbitMQClient) PublishEvent(routeKey string, payload any) error {
 	return lastErr
 }
 
-// 消费者-声明队列
-func DeclareQueue(ch *amqp.Channel, queueName string, bindingKey string, shardID int) error {
+// 消费者-声明队列（支持指定 DLQ routing key）
+func DeclareQueueWithDLQ(ch *amqp.Channel, queueName string, bindingKey string, shardID int, dlqRoutingKey string) error {
 	// QoS：每次只处理一条，处理完再给下一条，避免一个 worker 堆积太多未 ack 消息
 	if err := ch.Qos(1, 0, false); err != nil {
 		utils.Logger().WithField("shard", shardID).WithError(err).Error("set QoS failed")
@@ -204,7 +234,7 @@ func DeclareQueue(ch *amqp.Channel, queueName string, bindingKey string, shardID
 	// 启用post死信队列
 	args := amqp.Table{
 		"x-dead-letter-exchange":    postDLQExchange,
-		"x-dead-letter-routing-key": postDLQName,
+		"x-dead-letter-routing-key": dlqRoutingKey,
 	}
 	q, err := ch.QueueDeclare(
 		queueName,
@@ -231,4 +261,9 @@ func DeclareQueue(ch *amqp.Channel, queueName string, bindingKey string, shardID
 		return err
 	}
 	return nil
+}
+
+// DeclareQueue 声明 shard 队列（默认死信进入 post DLQ）
+func DeclareQueue(ch *amqp.Channel, queueName string, bindingKey string, shardID int) error {
+	return DeclareQueueWithDLQ(ch, queueName, bindingKey, shardID, postDLQName)
 }

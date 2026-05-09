@@ -232,6 +232,18 @@ Content-Disposition: inline; filename="20251027.png" //格式为inline，前端�
 
 - 请求方法: POST
 - 相对路径: /posts
+- 前置步骤: 进入发帖页面时先获取一次 `client_token`（临时 token，不需要持久化存储）
+
+```ts
+GET /api/v1/forum/posts/client-token
+
+Response:
+{
+  "code": int,
+  "data": { "client_token": string },
+  "message": string
+}
+```
 
 ```ts
 POST /api/v1/forum/posts
@@ -239,6 +251,7 @@ Content-Type: application/json
 
 Request:
 {
+    "client_token": string,
     "title":string,
     "content":string,
     "image_urls":string[],
@@ -253,6 +266,11 @@ Response:
     },
     "message": string
 }
+
+备注:
+- `client_token` 在有效期内用于防重复提交：重复发帖会直接返回首次创建的 `post_id`
+- 若返回 `202 Accepted` 表示首次请求仍在处理中，前端可携带同一个 `client_token` 重试
+- 若返回 `410 Gone` 表示 token 过期，前端需重新获取 `client_token`
 ```
 
 #### 2.2.2 获取单条帖子
@@ -501,6 +519,18 @@ Response:
 
 - 请求方法: POST
 - 相对路径: /replies
+- 前置步骤: 进入回复页面时先获取一次 `client_token`（临时 token，不需要持久化存储）
+
+```ts
+GET /api/v1/forum/replies/client-token
+
+Response:
+{
+  "code": int,
+  "data": { "client_token": string },
+  "message": string
+}
+```
 
 ```ts
 POST /api/v1/forum/replies
@@ -508,6 +538,7 @@ Content-Type: application/json
 
 Request:
 {
+    "client_token": string,
     "post_id":string,
     "parent_reply_id":string|null,    // 为空代表回复一条帖子,不为空代表评论一条回复
     "content":string,
@@ -523,6 +554,11 @@ Response:
     },
     "message": string
 }
+
+备注:
+- `client_token` 在有效期内用于防重复提交：重复回帖会直接返回首次创建的 `reply_id`
+- 若返回 `202 Accepted` 表示首次请求仍在处理中，前端可携带同一个 `client_token` 重试
+- 若返回 `410 Gone` 表示 token 过期，前端需重新获取 `client_token`
 ```
 
 #### 2.3.2 获取帖子下的回复

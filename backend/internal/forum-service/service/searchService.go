@@ -4,6 +4,7 @@ import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
 	"MathOverflow/internal/common/utils"
+	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
 	"MathOverflow/internal/forum-service/model/response"
@@ -14,9 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type SearchService interface {
@@ -27,17 +25,19 @@ type searchService struct {
 	cfg            config.Config
 	es             *client.ESClient
 	postRepo       repository.PostRepo
+	userSnapshot   repository.UserSnapshotRepo
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
 	servName       string
 }
 
-func NewSearchService(cfg config.Config, es *client.ESClient, postRepo repository.PostRepo) SearchService {
+func NewSearchService(cfg config.Config, es *client.ESClient, postRepo repository.PostRepo, userSnapshot repository.UserSnapshotRepo) SearchService {
 	return &searchService{
-		cfg:      cfg,
-		es:       es,
-		postRepo: postRepo,
-		servName: "Search-Service",
+		cfg:          cfg,
+		es:           es,
+		postRepo:     postRepo,
+		userSnapshot: userSnapshot,
+		servName:     "Search-Service",
 	}
 }
 
@@ -117,40 +117,71 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 		return nil, 0, syserror.InternalError
 	}
 
-	// 获取grpc client
-	userClient, err := s.getUserClient()
-	if err != nil {
-		logger.WithError(err).Error("get user client failed")
-		return nil, 0, syserror.NetworkError
-	}
-	// 调用 UserService
-	resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: userIDs})
-	if err != nil {
-		logger.WithError(err).Error("call BatchGetUserInfo failed")
-		st, ok := status.FromError(err)
-		if !ok {
-			logger.WithError(err).Error("non gRPC error when calling BatchGetUserInfo")
-			return nil, 0, syserror.NetworkError
+	// 快照优先，缺失回退 gRPC
+	dedup := make(map[int64]struct{}, len(userIDs))
+	uniqIDs := make([]int64, 0, len(userIDs))
+	for _, uid := range userIDs {
+		if _, ok := dedup[uid]; ok {
+			continue
 		}
-		switch st.Code() {
-		case codes.Internal:
-			return nil, 0, syserror.InternalError
-		case codes.Canceled:
-			return nil, 0, syserror.NetworkError
-		default:
-			logger.WithField("grpc_message", st.Message()).Warn("grpc error when calling BatchGetUserInfo")
+		dedup[uid] = struct{}{}
+		uniqIDs = append(uniqIDs, uid)
+	}
+
+	snapMap := map[int64]model.UserSnapshot{}
+	if s.userSnapshot != nil {
+		if m, err := s.userSnapshot.FindMapByIDs(uniqIDs); err == nil {
+			snapMap = m
+		} else {
+			logger.WithError(err).Warn("load user snapshots failed")
 		}
 	}
 
-	// 请求成功
-	var userMap = resp.Users
+	grpcMap := map[int64]*userpb.GetUserResponse{}
+	missing := make([]int64, 0)
+	for _, uid := range uniqIDs {
+		if _, ok := snapMap[uid]; ok {
+			continue
+		}
+		missing = append(missing, uid)
+	}
+	if len(missing) > 0 {
+		userClient, err := s.getUserClient()
+		if err != nil {
+			logger.WithError(err).Warn("get user client failed when filling missing snapshots")
+		} else {
+			resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: missing})
+			if err != nil {
+				logger.WithError(err).Warn("batch get user info via grpc failed")
+			} else {
+				grpcMap = resp.Users
+				if s.userSnapshot != nil {
+					for _, u := range grpcMap {
+						_ = s.userSnapshot.Upsert(model.UserSnapshot{
+							UserID:    u.UserId,
+							Username:  u.Username,
+							Role:      int(u.Role),
+							AvatarURL: u.AvatarUrl,
+						})
+					}
+				}
+			}
+		}
+	}
 
 	// 聚合返回查询结果
 	postDatas := make([]response.MultiPostData, len(postMap))
 	var idx = 0
 	for _, pid := range postIDs {
 		if post, ok := postMap[pid]; ok {
-			if user, ok := userMap[post.AuthorID]; ok {
+			if snap, ok := snapMap[post.AuthorID]; ok {
+				postDatas[idx].UserInfo = response.UserInfo{
+					ID:        snap.UserID,
+					Username:  snap.Username,
+					Role:      snap.Role,
+					AvatarUrl: snap.AvatarURL,
+				}
+			} else if user, ok := grpcMap[post.AuthorID]; ok {
 				postDatas[idx].UserInfo = response.UserInfo{
 					ID:        user.UserId,
 					Username:  user.Username,

@@ -17,13 +17,6 @@ const (
 	ForumPostStatUpdated ForumEventType = "forum.post.statUpdated"
 )
 
-// ForumPostEvent is the envelope delivered over MQ.
-type ForumPostEvent struct {
-	Type      ForumEventType   `json:"type"`
-	Payload   ForumPostPayload `json:"payload"`
-	CreatedAt time.Time        `json:"created_at"`
-}
-
 // ForumPostPayload is the transport-friendly shape for posts.
 type ForumPostPayload struct {
 	PostID     int64     `json:"post_id,omitempty"` // post_id
@@ -40,6 +33,13 @@ type ForumPostPayload struct {
 	CreatedAt  time.Time `json:"created_at,omitempty"`
 	Favors     int64     `json:"favors"`
 	TotalScore float64   `json:"total_score"`
+}
+
+// ForumPostEvent is the envelope delivered over MQ.
+type ForumPostEvent struct {
+	Type      ForumEventType   `json:"type"`
+	Payload   ForumPostPayload `json:"payload"`
+	CreatedAt time.Time        `json:"created_at"`
 }
 
 // 发布post事件

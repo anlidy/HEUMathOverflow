@@ -1,0 +1,14 @@
+server:
+  port: 9091
+
+redis:
+  addr: redis:6379
+  password: ""
+  db: 0
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: rabbitadmin
+  password: rabbitadmin
+  rag_worker_count: 5

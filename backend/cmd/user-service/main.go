@@ -33,6 +33,14 @@ func main() {
 	if err != nil {
 		utils.Logger().WithError(err).Fatal("failed to load user.yaml")
 	}
+
+	// 初始化RabbitMQ（用于发布用户更新事件）
+	rabbit, err := client.InitRabbitMQ(cfg.RabbitMQ)
+	if err != nil {
+		utils.Logger().WithError(err).Fatal("init rabbitmq failed")
+	}
+	defer rabbit.Close()
+
 	// 初始化pgsql数据库
 	pg, err := client.InitPostgres(cfg.Postgres)
 	if err != nil {
@@ -59,7 +67,7 @@ func main() {
 	sessionRepo := repository.NewSessionRepository(rdb)
 	fileRepo := repository.NewFileRepository(minio)
 
-	userService := service.NewUserService(cfg, userRepo, sessionRepo, fileRepo)
+	userService := service.NewUserService(cfg, userRepo, sessionRepo, fileRepo, rabbit)
 	userController := controller.NewUserController(userService)
 	userServer := controller.NewUserServer(userService)
 

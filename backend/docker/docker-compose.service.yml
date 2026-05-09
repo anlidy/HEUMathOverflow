@@ -1,5 +1,21 @@
 
 services:
+  # 网关服务
+  gateway-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+      args:
+        SERVICE: gateway
+        EXPOSE_PORT: 8080
+    restart: unless-stopped
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8080:8080"
+
   # 用户服务
   user-service:
     build:

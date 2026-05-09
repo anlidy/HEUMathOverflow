@@ -15,16 +15,12 @@ func SetupRouter(rdb *redis.Client, uc controller.UserController) *gin.Engine {
 		middleware.RequestIDMiddleware(),
 		middleware.MetricsMiddleware("user-service"),
 		middleware.LoggingMiddleware(),
-		middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"}),
 	)
 
 	// Prometheus metrics endpoint
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	api := r.Group("/api")
-	v1 := api.Group("/v1")
-
-	user := v1.Group("/user")
+	user := r.Group("/user")
 
 	// 不需要鉴权
 	user.POST("/login", uc.UserLogin)
@@ -33,7 +29,6 @@ func SetupRouter(rdb *redis.Client, uc controller.UserController) *gin.Engine {
 
 	// 需要鉴权
 	authUser := user.Group("")
-	authUser.Use(middleware.AuthMiddleware(rdb))
 	authUser.POST("/logout", uc.UserLogout)
 	authUser.POST("/avatar", uc.UserUploadAvatar)
 	authUser.PATCH("/profile", uc.UserUploadProfie)

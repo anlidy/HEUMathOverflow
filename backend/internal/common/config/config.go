@@ -42,6 +42,7 @@ type RabbitMQConfig struct {
 	User            string
 	Password        string
 	PostWorkerCount int64 `mapstructure:"post_worker_count"`
+	RagWorkerCount  int64 `mapstructure:"rag_worker_count"`
 }
 
 type ElasticsearchConfig struct {
