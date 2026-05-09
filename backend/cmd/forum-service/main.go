@@ -4,6 +4,8 @@ import (
 	"MathOverflow/internal/common/client"
 	"MathOverflow/internal/common/config"
 	"MathOverflow/internal/common/utils"
+	"MathOverflow/internal/forum-service/cache"
+	"MathOverflow/internal/forum-service/consumer"
 	"MathOverflow/internal/forum-service/controller"
 	"MathOverflow/internal/forum-service/model"
 	"MathOverflow/internal/forum-service/repository"
@@ -57,6 +59,9 @@ func main() {
 	if err := pg.AutoMigrate(&model.Reply{}, &model.ReplyLike{}); err != nil {
 		panic(err)
 	}
+	if err := pg.AutoMigrate(&model.UserSnapshot{}); err != nil {
+		panic(err)
+	}
 	// 添加triggers
 	InitTriggers(pg)
 
@@ -75,19 +80,25 @@ func main() {
 	fileRepo := repository.NewFileRepository(mc)
 	postRepo := repository.NewPostRepository(pg, rdb)
 	replyRepo := repository.NewReplyRepository(pg, rdb)
+	userSnapshotRepo := repository.NewUserSnapshotRepository(pg)
+	tokenRepo := repository.NewClientTokenRepository(rdb)
+	postCache := cache.NewPostCache(rdb, cache.PostCacheConfig{})
+	commentCache := cache.NewCommentCache(rdb, cache.CommentCacheConfig{})
 
 	forumServ := service.NewForumService(cfg, fileRepo)
-	postServ := service.NewPostService(cfg, rabbit, postRepo, fileRepo)
-	replyServ := service.NewReplyService(cfg, replyRepo, fileRepo)
-	searchServ := service.NewSearchService(cfg, es, postRepo)
+	postServ := service.NewPostService(cfg, rabbit, postRepo, fileRepo, userSnapshotRepo, tokenRepo, postCache)
+	replyServ := service.NewReplyService(cfg, postRepo, replyRepo, fileRepo, userSnapshotRepo, tokenRepo, commentCache, postCache, postCache)
+	searchServ := service.NewSearchService(cfg, es, postRepo, userSnapshotRepo)
 
 	forumContrller := controller.NewForumController(forumServ)
 	postController := controller.NewPostController(postServ)
 	replyController := controller.NewReplyController(replyServ)
 	searchController := controller.NewSearchController(searchServ)
+	tokenController := controller.NewTokenController(tokenRepo)
 
 	// 初始化worker
 	postWorker := worker.NewPostWorker(pg, rdb, rabbit)
+	hotWarmWorker := worker.NewHotPostWarmWorker(rdb, postRepo, postCache)
 
 	// 并发启动
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -101,9 +112,19 @@ func main() {
 		go postWorker.WriteBackPostWorker(ctx, interval, count)
 		return nil
 	})
+	eg.Go(func() error {
+		interval := 30 * time.Second
+		var topN int64 = 100
+		go hotWarmWorker.Run(ctx, interval, topN)
+		return nil
+	})
 
 	eg.Go(func() error {
-		r := router.SetupRouter(rdb, forumContrller, postController, replyController, searchController)
+		return consumer.StartUserConsumer(ctx, rabbit, userSnapshotRepo)
+	})
+
+	eg.Go(func() error {
+		r := router.SetupRouter(rdb, forumContrller, postController, replyController, searchController, tokenController)
 		srv := &http.Server{
 			Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 			Handler: r, // Gin 实现了 http.Handler 接口

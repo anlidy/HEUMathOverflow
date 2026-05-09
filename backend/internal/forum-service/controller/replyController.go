@@ -3,6 +3,7 @@ package controller
 import (
 	"MathOverflow/internal/common/api"
 	"MathOverflow/internal/common/utils"
+	"MathOverflow/internal/forum-service/model"
 	syserror "MathOverflow/internal/forum-service/model/error"
 	"MathOverflow/internal/forum-service/model/request"
 	"MathOverflow/internal/forum-service/service"
@@ -32,6 +33,12 @@ func (rc *ReplyController) CreateNewReply(c *gin.Context) {
 	userID := c.GetInt64("userID")
 	replyID, syserr := rc.replyServ.CreateNewReply(ctx, userID, req)
 	switch syserr {
+	case syserror.InProgressError:
+		api.JSON(c).Code(http.StatusAccepted).Message("请求处理中,请稍后重试").Send()
+		return
+	case syserror.TokenExpiredError:
+		api.JSON(c).Code(http.StatusGone).Message("页面已过期,请刷新后重试").Send()
+		return
 	case syserror.ResourceExpiredError:
 		api.JSON(c).Code(http.StatusGone).Message("附件已失效,请重新上传").Send()
 		return
@@ -89,9 +96,12 @@ func (rc *ReplyController) BatchGetReply(c *gin.Context) {
 	page, _ := strconv.Atoi(pageStr)
 	limit, _ := strconv.Atoi(limitStr)
 	page = max(page, 1) // 从1开始
-	if limit == 0 {
-		limit = 20 // 默认取20条
+	// 强制分页规范：page_size 固定 20
+	if limitStr != "" && limit != 20 {
+		api.JSON(c).Code(http.StatusBadRequest).Message("page_size 仅支持 20").Send()
+		return
 	}
+	limit = 20
 	var ctx = c.Request.Context()
 	multiData, total, syserr := rc.replyServ.GetManyReplies(ctx, postID, userID, page, limit)
 	switch syserr {
@@ -218,4 +228,43 @@ func (pc *ReplyController) CancelLikeOneReply(c *gin.Context) {
 		return
 	}
 	api.JSON(c).Code(http.StatusOK).Message("取消点赞成功").Send()
+}
+
+// 更改回帖状态
+// 发帖作者 -> 作者认可
+// 教师 -> 教师认可
+func (pc *ReplyController) ChangeReplyStatus(c *gin.Context) {
+	var req request.ReplyStatusUpdate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.JSON(c).Code(http.StatusBadRequest).Message("状态修改失败,数据格式有误").Send()
+		return
+	}
+	if req.Status < int(requestedReplyStatusMin()) || req.Status > int(requestedReplyStatusMax()) {
+		api.JSON(c).Code(http.StatusBadRequest).Message("状态值无效").Send()
+		return
+	}
+	var userID = c.GetInt64("userID")
+	var role = c.GetInt("role")
+	var ctx = c.Request.Context()
+	syserr := pc.replyServ.ChangeReplyStatus(ctx, req, userID, role)
+	switch syserr {
+	case syserror.PermissionDeniedError:
+		api.JSON(c).Code(http.StatusUnauthorized).Message("您无权修改该回帖状态").Send()
+		return
+	case syserror.NotFoundError:
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要修改状态的回贴").Send()
+		return
+	case syserror.InternalError:
+		api.JSON(c).Code(http.StatusInternalServerError).Message("操作失败").Send()
+		return
+	}
+	api.JSON(c).Code(http.StatusOK).Message("回帖状态修改成功").Send()
+}
+
+func requestedReplyStatusMin() model.ReplyStatus {
+	return model.NotSelected
+}
+
+func requestedReplyStatusMax() model.ReplyStatus {
+	return model.TeacherCertified
 }

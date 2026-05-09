@@ -7,20 +7,26 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ReplyRepo interface {
 	CreateReply(reply *model.Reply) error
+	FindReplyByID(replyID int64) (model.Reply, error)
 	FindReplyDetailByID(replyID, userID int64) (model.ReplyDetail, error)
 	FindReplyDetailsByPostID(postID, userID int64, offset, limit int) ([]model.ReplyDetail, int64, error)
+	FindRepliesPageByPostID(postID int64, offset, limit int) ([]model.Reply, int64, error)
+	FindRepliesByIDs(replyIDs []int64) ([]model.Reply, error)
+	FindReplyLikeMap(userID int64, replyIDs []int64) (map[int64]bool, error)
 	UpdateColumn(replyID int64, column string, value any) (bool, error)
 	UpdateReply(reply *model.Reply) (bool, error)
 	DeleteReply(replyID int64) error
-	CreateReplyLike(rl *model.ReplyLike) error
-	DeleteReplyLike(userID, replyID int64) error
+	CreateReplyLike(rl *model.ReplyLike) (bool, error)
+	DeleteReplyLike(userID, replyID int64) (bool, error)
 	// redis
 	IncreasePostReplies(ctx context.Context, postID int64) error
 	DecreasePostReplies(ctx context.Context, postID int64) error
+	ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, replyStatus int, certifiedBy *int64, postStatus *int) error
 }
 
 type replyRepo struct {
@@ -35,6 +41,12 @@ func NewReplyRepository(pg *gorm.DB, rdb *redis.Client) ReplyRepo {
 // pg创建回帖记录
 func (r *replyRepo) CreateReply(reply *model.Reply) error {
 	return r.pg.Model(&model.Reply{}).Create(reply).Error
+}
+
+func (r *replyRepo) FindReplyByID(replyID int64) (model.Reply, error) {
+	var result model.Reply
+	err := r.pg.Model(&model.Reply{}).Where("id = ?", replyID).First(&result).Error
+	return result, err
 }
 
 // pg根据replyID查询回帖
@@ -83,6 +95,55 @@ func (r *replyRepo) FindReplyDetailsByPostID(postID, userID int64, offset, limit
 	return results, total, err
 }
 
+// FindRepliesPageByPostID loads replies without user-specific liked flag (for caching).
+func (r *replyRepo) FindRepliesPageByPostID(postID int64, offset, limit int) ([]model.Reply, int64, error) {
+	var results []model.Reply
+	var total int64
+	err := r.pg.Model(&model.Reply{}).
+		Where("post_id = ?", postID).
+		Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	err = r.pg.Model(&model.Reply{}).
+		Where("post_id = ?", postID).
+		Order("status DESC").
+		Offset(offset).Limit(limit).
+		Find(&results).Error
+	return results, total, err
+}
+
+func (r *replyRepo) FindRepliesByIDs(replyIDs []int64) ([]model.Reply, error) {
+	if len(replyIDs) == 0 {
+		return nil, nil
+	}
+	var results []model.Reply
+	err := r.pg.Model(&model.Reply{}).Where("id IN (?)", replyIDs).Find(&results).Error
+	return results, err
+}
+
+func (r *replyRepo) FindReplyLikeMap(userID int64, replyIDs []int64) (map[int64]bool, error) {
+	mp := make(map[int64]bool, len(replyIDs))
+	if len(replyIDs) == 0 {
+		return mp, nil
+	}
+	type row struct {
+		ReplyID int64 `gorm:"column:reply_id"`
+	}
+	var rows []row
+	err := r.pg.Model(&model.ReplyLike{}).
+		Select("reply_id").
+		Where("user_id = ? AND reply_id IN (?)", userID, replyIDs).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		mp[r.ReplyID] = true
+	}
+	return mp, nil
+}
+
 // pg更新一列
 func (r *replyRepo) UpdateColumn(replyID int64, column string, value any) (bool, error) {
 	result := r.pg.Model(&model.Reply{}).Where("id = ?", replyID).Update(column, value)
@@ -127,20 +188,17 @@ func (r *replyRepo) DeleteAllReplies(postID int64) error {
 
 // / 点赞接口
 // 创建点赞记录
-func (r *replyRepo) CreateReplyLike(rl *model.ReplyLike) error {
-	return r.pg.Model(&model.ReplyLike{}).Create(rl).Error
+func (r *replyRepo) CreateReplyLike(rl *model.ReplyLike) (bool, error) {
+	result := r.pg.Model(&model.ReplyLike{}).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(rl)
+	return result.RowsAffected > 0, result.Error
 }
 
 // 删除点赞记录
-func (r *replyRepo) DeleteReplyLike(userID, replyID int64) error {
+func (r *replyRepo) DeleteReplyLike(userID, replyID int64) (bool, error) {
 	result := r.pg.Where("user_id = ? AND reply_id = ?", userID, replyID).Delete(&model.ReplyLike{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+	return result.RowsAffected > 0, result.Error
 }
 
 // redis增加 post replies 次数
@@ -167,4 +225,28 @@ func (r *replyRepo) DecreasePostReplies(ctx context.Context, postID int64) error
 	}
 
 	return nil
+}
+
+// 同时修改回帖和帖子的状态
+func (r *replyRepo) ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, replyStatus int, certifiedBy *int64, postStatus *int) error {
+	return r.pg.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"status":       replyStatus,
+			"certified_by": certifiedBy,
+		}
+		result := tx.Model(&model.Reply{}).Where("id = ? AND post_id = ?", replyID, postID).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+
+		if postStatus != nil {
+			if err := tx.Model(&model.Post{}).Where("id = ?", postID).Update("status", *postStatus).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

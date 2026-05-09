@@ -35,13 +35,11 @@ func GetRoleName(role int) string {
 
 // 获取PostStatus的字符串名称
 func GetPostStatusName(role int) string {
-	switch fmodel.PostStatus(role) {
+	switch fmodel.AnswerStatus(role) {
 	case fmodel.Unanswered:
 		return "Unanswered"
 	case fmodel.Answered:
 		return "Answered"
-	case fmodel.Certified:
-		return "Certified"
 	default:
 		return ""
 	}
