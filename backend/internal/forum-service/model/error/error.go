@@ -7,8 +7,11 @@ const (
 	NoError Error = iota
 	NotFoundError
 	InternalError
+	ConflictError
 	DuplicateError
 	PermissionDeniedError
 	NetworkError
 	ResourceExpiredError
+	TokenExpiredError
+	InProgressError
 )

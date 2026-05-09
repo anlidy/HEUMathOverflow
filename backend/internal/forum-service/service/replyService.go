@@ -786,8 +786,11 @@ func (s *replyService) ChangeReplyStatus(ctx context.Context, req request.ReplyS
 		postStatus = &answered
 	}
 
-	err = s.replyRepo.ChangeReplyAndPostStatus(ctx, req.ReplyID, reply.PostID, int(targetStatus), certifiedBy, postStatus)
+	err = s.replyRepo.ChangeReplyAndPostStatus(ctx, req.ReplyID, reply.PostID, int(reply.Status), int(targetStatus), certifiedBy, postStatus)
 	if err != nil {
+		if err == repository.ErrReplyStatusConflict {
+			return syserror.ConflictError
+		}
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}

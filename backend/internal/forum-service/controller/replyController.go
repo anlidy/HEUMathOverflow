@@ -248,6 +248,9 @@ func (pc *ReplyController) ChangeReplyStatus(c *gin.Context) {
 	var ctx = c.Request.Context()
 	syserr := pc.replyServ.ChangeReplyStatus(ctx, req, userID, role)
 	switch syserr {
+	case syserror.ConflictError:
+		api.JSON(c).Code(http.StatusConflict).Message("回帖状态已变更,请刷新后重试").Send()
+		return
 	case syserror.PermissionDeniedError:
 		api.JSON(c).Code(http.StatusUnauthorized).Message("您无权修改该回帖状态").Send()
 		return

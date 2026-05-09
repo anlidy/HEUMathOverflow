@@ -3,12 +3,15 @@ package repository
 import (
 	"MathOverflow/internal/forum-service/model"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var ErrReplyStatusConflict = errors.New("reply status changed concurrently")
 
 type ReplyRepo interface {
 	CreateReply(reply *model.Reply) error
@@ -26,7 +29,7 @@ type ReplyRepo interface {
 	// redis
 	IncreasePostReplies(ctx context.Context, postID int64) error
 	DecreasePostReplies(ctx context.Context, postID int64) error
-	ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, replyStatus int, certifiedBy *int64, postStatus *int) error
+	ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, expectedReplyStatus int, replyStatus int, certifiedBy *int64, postStatus *int) error
 }
 
 type replyRepo struct {
@@ -228,18 +231,20 @@ func (r *replyRepo) DecreasePostReplies(ctx context.Context, postID int64) error
 }
 
 // 同时修改回帖和帖子的状态
-func (r *replyRepo) ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, replyStatus int, certifiedBy *int64, postStatus *int) error {
+func (r *replyRepo) ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, expectedReplyStatus int, replyStatus int, certifiedBy *int64, postStatus *int) error {
 	return r.pg.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		updates := map[string]any{
 			"status":       replyStatus,
 			"certified_by": certifiedBy,
 		}
-		result := tx.Model(&model.Reply{}).Where("id = ? AND post_id = ?", replyID, postID).Updates(updates)
+		result := tx.Model(&model.Reply{}).
+			Where("id = ? AND post_id = ? AND status = ?", replyID, postID, expectedReplyStatus).
+			Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound
+			return ErrReplyStatusConflict
 		}
 
 		if postStatus != nil {
