@@ -1,0 +1,20 @@
+root = "../.."
+tmp_dir = "tmp_audit"
+
+[build]
+  cmd = "go build ."
+  bin = "./audit-service"
+  full_bin = "./audit-service"
+  include_ext = ["go", "yaml", "mod", "sum"]
+  exclude_dir = ["tmp_", "vendor", "bin", "deploy", "proto"]
+  include_dir = ["services/audit", "common"]
+  delay = 1000 # ms
+
+[log]
+  time = true
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"

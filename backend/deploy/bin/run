@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 定位到当前脚本所在目录，然后切换到 ../docker 目录
+DOCKER_CMD=${DOCKER_CMD:-docker}
+DIR="$(cd "$(dirname "${0}")" && pwd)"
+cd "$DIR"
+cd ../docker
+
+# 查找docker目录下是否存在.env文件，不存在则从.env.example复制一份
+if [ ! -f .env ]; then
+  cp .env.example .env
+fi
+
+"$DOCKER_CMD" compose -f docker-compose.service.yml "$@"

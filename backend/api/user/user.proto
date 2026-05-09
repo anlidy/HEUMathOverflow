@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package user;
 
-option go_package = "backend/proto/user;userpb";
+option go_package = "backend/api/user;userpb";
 
 // 请求与响应结构
 message GetUserRequest {
