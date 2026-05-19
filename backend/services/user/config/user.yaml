@@ -1,0 +1,33 @@
+server:
+  port: 8081
+
+postgres:
+  host: postgres
+  port: 5432
+  user: user_service_user
+  password: user_service_pass
+  dbname: user_db
+  sslmode: disable
+
+minio:
+  endpoint: minio:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket: user
+  use_ssl: false
+  clean_tmp: false
+
+redis:
+  addr: redis:6379
+  password: ""
+  db: 0
+
+grpc:
+  expose_port: 50051
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: rabbitadmin
+  password: rabbitadmin
+  post_worker_count: 1

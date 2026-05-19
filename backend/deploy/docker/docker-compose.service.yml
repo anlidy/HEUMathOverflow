@@ -1,0 +1,256 @@
+
+services:
+  # 网关服务
+  gateway-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: production
+      args:
+        SERVICE: gateway
+        EXPOSE_PORT: 8080
+    restart: unless-stopped
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8080:8080"
+
+  # 用户服务
+  user-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: production
+      args:
+        SERVICE: user
+        EXPOSE_PORT: 8081
+    restart: unless-stopped
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      # App reads common/config/user.yaml by default; config file already points to container hostnames.
+      GIN_MODE: release
+    ports:
+      - "8081:8081"
+    expose:
+      - "50051"         # gRPC 只在 Docker 网络内部可见
+  
+  
+  # 论坛服务
+  forum-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: production
+      args:
+        SERVICE: forum
+        EXPOSE_PORT: 8082
+    restart: unless-stopped
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8082:8082"
+
+  # 审核模块
+  audit-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: production
+      args:
+        SERVICE: audit
+        EXPOSE_PORT: 8083
+    restart: on-failure
+    tty: true         # 给容器分配伪终端（-t）
+    environment:
+      GIN_MODE: release
+    ports:
+      - "8083:8083"
+
+  # ES Indexer 服务（消费 MQ，异步同步数据至 Elasticsearch）
+  es-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: production
+      args:
+        SERVICE: es
+        EXPOSE_PORT: 0               # 一般不暴露 HTTP 端口
+    restart: unless-stopped
+    tty: true
+    environment:
+      GIN_MODE: release
+
+  rag-service:
+    build:
+      context: ../..
+      dockerfile: services/rag/Dockerfile
+    restart: unless-stopped
+    tty: true
+    environment:
+      RAG_LLM_BASE_URL: ${RAG_LLM_BASE_URL}
+      RAG_LLM_API_KEY: ${RAG_LLM_API_KEY}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    depends_on:
+      - rag-model-server
+      - qdrant
+      - rabbitmq
+    ports:
+      - "9091:9091"
+
+  rag-model-server:
+    build:
+      context: ../..
+      dockerfile: services/rag/model_server/Dockerfile
+    restart: unless-stopped
+    tty: true
+    volumes:
+      - ../../services/rag/model_server/models:/app/models:ro
+    ports:
+      - "8000:8000"
+
+  pgsadmin:
+    image: docker.io/dpage/pgadmin4:snapshot
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    tty: true
+    ports:
+      - "18080:80"
+      - "18443:443"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    tty: true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Shanghai
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - pgs_data:/var/lib/postgresql/data
+      - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro  # 可选
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - /etc/timezone:/etc/timezone:ro  # 可选
+
+  minio:
+    image: docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      # - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+      - /etc/timezone:/etc/timezone:ro  # 可选
+  
+  mongodb:
+    image: docker.io/library/mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    command: 
+    # ports:
+    #  - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config_db:/data/configdb
+      - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
+      - /etc/timezone:/etc/timezone:ro  # 可选
+
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.8
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false          # 开发环境禁用认证
+      - ES_JAVA_OPTS=-Xms1g -Xmx2g            # 按需调整
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - /etc/timezone:/etc/timezone:ro        # 保持时区一致（你的服务都这样）
+    # ports:
+    #   - "9200:9200"     # 如需本地访问再打开
+    networks:
+      - default
+
+  # Kibana 可视化平台
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.19.8
+    container_name: kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_PUBLICBASEURL=http://localhost:5601
+    depends_on:
+      - elasticsearch
+    ports:
+      - "5601:5601"      # Kibana 对外访问端口
+    networks:
+      - default
+
+  # RabbitMQ 消息队列服务（Topic Exchange）
+  rabbitmq:
+    image: rabbitmq:4.1.6-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD}
+    tty: true
+    ports:
+      # - "5672:5672"     # MQ 连接端口
+      - "15672:15672"   # Web管理界面
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - /etc/timezone:/etc/timezone:ro
+
+  qdrant:
+    image: qdrant/qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+networks:
+  default:
+    name: backend_default
+    driver: bridge
+  
+volumes:
+  pgs_data:
+  pgadmin_data:
+  redis_data:
+  minio_data:
+  mongo_data:
+  mongo_config_db:
+  es_data:
+  rabbitmq_data:
+  qdrant_data:
