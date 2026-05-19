@@ -1,10 +1,6 @@
 server:
+  host: 0.0.0.0
   port: 9091
-
-redis:
-  addr: redis:6379
-  password: ""
-  db: 0
 
 rabbitmq:
   host: rabbitmq
@@ -12,3 +8,70 @@ rabbitmq:
   user: rabbitadmin
   password: rabbitadmin
   rag_worker_count: 5
+  exchange: app.events
+  exchange_type: topic
+  queue_prefix: rag.data.events
+  dead_letter_exchange: app.events.dlx
+  dead_letter_queue: rag.data.events.dlq
+
+qdrant:
+  host: qdrant
+  port: 6333
+  collection: forum_rag_chunks
+  dense_vector_name: dense
+  sparse_vector_name: sparse
+  enable_sparse: true
+  recreate_on_start: false
+
+embedding:
+  base_url: http://rag-model-server:8000/v1
+  api_key: local-embedding-key
+  model: Qwen/Qwen3-Embedding-4B
+
+sparse:
+  namespace_size: 1000003
+  k1: 1.2
+  b: 0.75
+  avgdl: 120.0
+
+rerank:
+  base_url: http://rag-model-server:8000/v1
+  api_key: local-rerank-key
+  model: Qwen/Qwen3-Reranker-4B
+  timeout_seconds: 30
+
+llm:
+  base_url: ""
+  api_key: ""
+  model: gpt-5.4
+  temperature: 0.0
+  timeout_seconds: 60
+  max_retries: 2
+
+chunking:
+  question_chunk_size: 900
+  question_chunk_overlap: 120
+  answer_chunk_size: 800
+  answer_chunk_overlap: 120
+
+retrieval:
+  global_chunk_limit: 36
+  post_limit: 6
+  answer_doc_limit: 2
+  answer_chunk_limit: 4
+  question_chunk_limit: 3
+  neighbor_expand_limit: 1
+  min_answer_chunks: 2
+  min_question_chunks: 1
+
+chat:
+  max_tool_round_trips: 3
+  tool_post_limit: 3
+  tool_global_chunk_limit: 12
+  context:
+    system_prompt: >-
+      You are a MathOverflow AI assistant. Answer with the conversation context first.
+      Use the search tool only when you need forum knowledge that is not already in the
+      conversation.
+    max_history_messages: 12
+    max_message_chars: 4000
