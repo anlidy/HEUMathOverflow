@@ -1,1 +1,31 @@
 **/data*
+
+# Git and editor noise
+.git
+.gitignore
+**/.DS_Store
+**/.idea
+**/.vscode
+
+# Python caches and virtualenvs
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.venv
+**/venv
+
+# Node and frontend artifacts if any
+**/node_modules
+
+# Large generated service binaries are not needed for rag Python images
+services/*/bin
+
+# Default: exclude all local model weights from generic contexts
+services/rag/model_server/models
+
+# Re-include only the exact files needed by RAG images
+!services/rag/**
+!services/rag/model_server/**

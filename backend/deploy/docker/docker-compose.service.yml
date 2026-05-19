@@ -3,7 +3,7 @@ services:
   # 网关服务
   gateway-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: production
       args:
@@ -19,7 +19,7 @@ services:
   # 用户服务
   user-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: production
       args:
@@ -39,7 +39,7 @@ services:
   # 论坛服务
   forum-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: production
       args:
@@ -55,7 +55,7 @@ services:
   # 审核模块
   audit-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: production
       args:
@@ -71,7 +71,7 @@ services:
   # ES Indexer 服务（消费 MQ，异步同步数据至 Elasticsearch）
   es-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: production
       args:
@@ -81,6 +81,36 @@ services:
     tty: true
     environment:
       GIN_MODE: release
+
+  rag-service:
+    build:
+      context: ../..
+      dockerfile: services/rag/Dockerfile
+    restart: unless-stopped
+    tty: true
+    environment:
+      RAG_LLM_BASE_URL: ${RAG_LLM_BASE_URL}
+      RAG_LLM_API_KEY: ${RAG_LLM_API_KEY}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    depends_on:
+      - rag-model-server
+      - qdrant
+      - rabbitmq
+    ports:
+      - "9091:9091"
+
+  rag-model-server:
+    build:
+      context: ../..
+      dockerfile: services/rag/model_server/Dockerfile
+    restart: unless-stopped
+    tty: true
+    volumes:
+      - ../../services/rag/model_server/models:/app/models:ro
+    ports:
+      - "8000:8000"
 
   pgsadmin:
     image: docker.io/dpage/pgadmin4:snapshot
@@ -108,7 +138,7 @@ services:
     #   - "5432:5432"
     volumes:
       - pgs_data:/var/lib/postgresql/data
-      - ./deploy/docker/Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql:ro
+      - ./Postgre/create_dbs.sql:/docker-entrypoint-initdb.d/create_dbs.sql:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro  # 可选
 
@@ -146,7 +176,7 @@ services:
     volumes:
       - mongo_data:/data/db
       - mongo_config_db:/data/configdb
-      - ./deploy/docker/Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
+      - ./Mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro # 初始化创建数据库
       - /etc/timezone:/etc/timezone:ro  # 可选
 
   # Elasticsearch 搜索引擎
@@ -201,6 +231,14 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
       - /etc/timezone:/etc/timezone:ro
 
+  qdrant:
+    image: qdrant/qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
 networks:
   default:
     name: backend_default
@@ -215,3 +253,4 @@ volumes:
   mongo_config_db:
   es_data:
   rabbitmq_data:
+  qdrant_data:
