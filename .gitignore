@@ -3,4 +3,5 @@
 **/__pycache__/**
 frontend/node_modules/
 /backend/services/rag/model_server/models/
+/backend/services/*/bin/
 .omo/**
