@@ -1,11 +1,5 @@
 package utils
 
-import (
-	"errors"
-
-	"github.com/jackc/pgx/v5/pgconn"
-)
-
 func SliceFilter[T comparable](src []T, filter []T) []T {
 	filterSet := make(map[T]struct{}, len(filter))
 	for _, v := range filter {
@@ -18,22 +12,4 @@ func SliceFilter[T comparable](src []T, filter []T) []T {
 		}
 	}
 	return res
-}
-
-// IsPgDuplicateKey 判断是否为 PostgreSQL 唯一键冲突
-func IsPgDuplicateKey(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
-}
-
-// // 判断是否为外键约束错误
-func IsPgViolateForeignKey(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23503"
-	}
-	return false
 }

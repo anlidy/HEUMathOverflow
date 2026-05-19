@@ -1,6 +1,8 @@
 package repository
 
 import (
+	common "MathOverflow/common/model"
+	"MathOverflow/common/utils"
 	"MathOverflow/services/forum/internal/model"
 	"context"
 	"encoding/json"
@@ -29,9 +31,13 @@ type PostRepo interface {
 	DeletePostStar(userID, postID int64) (bool, error)
 	HasPostStar(userID, postID int64) (bool, error)
 	FindUserStarredPosts(userID int64, offset, limit int) ([]model.Post, int64, error)
+	RunInTx(ctx context.Context, fn func(tx *gorm.DB) error) error
+	AddOutboxMessageInTx(ctx context.Context, tx *gorm.DB, topic string, postID int64, payload []byte) error
 	// redis
 	IncreasePostStat(ctx context.Context, postID int64, attr string) error
 	DecreasePostStat(ctx context.Context, postID int64, attr string) error
+	MovePostStatToProcessing(ctx context.Context, key string) (string, bool, error)
+	DeletePostStatKey(ctx context.Context, key string) error
 	BumpHottestCacheVersion(ctx context.Context) error
 }
 
@@ -248,6 +254,24 @@ func (r *postRepo) FindUserStarredPosts(userID int64, offset, limit int) ([]mode
 	return results, count, err
 }
 
+func (r *postRepo) RunInTx(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	return r.pg.WithContext(ctx).Transaction(fn)
+}
+
+func (r *postRepo) AddOutboxMessageInTx(ctx context.Context, tx *gorm.DB, topic string, postID int64, payload []byte) error {
+	message := common.OutboxMessage{
+		ID:           utils.GenerateSnowflakeID(),
+		ResourceType: "post",
+		ResourceID:   postID,
+		Topic:        topic,
+		Target:       "forum-post-events",
+		Payload:      payload,
+		Status:       common.OutboxMessagePending,
+		RetryAt:      time.Now(),
+	}
+	return tx.WithContext(ctx).Create(&message).Error
+}
+
 // redis增加{attr}次数
 func (r *postRepo) IncreasePostStat(ctx context.Context, postID int64, attr string) error {
 	key := fmt.Sprintf("post:%d:stat", postID)
@@ -272,6 +296,37 @@ func (r *postRepo) DecreasePostStat(ctx context.Context, postID int64, attr stri
 	}
 
 	return nil
+}
+
+func (r *postRepo) MovePostStatToProcessing(ctx context.Context, key string) (string, bool, error) {
+	processingKey := fmt.Sprintf("%s:processing", key)
+	moved, err := r.rdb.Eval(ctx, `
+local src = KEYS[1]
+local dst = KEYS[2]
+if redis.call("EXISTS", src) == 0 then
+    return 0
+end
+if redis.call("EXISTS", dst) == 1 then
+    return -1
+end
+redis.call("RENAME", src, dst)
+return 1
+`, []string{key, processingKey}).Int()
+	if err != nil {
+		return "", false, err
+	}
+	switch moved {
+	case 1:
+		return processingKey, true, nil
+	case 0:
+		return processingKey, false, nil
+	default:
+		return processingKey, false, nil
+	}
+}
+
+func (r *postRepo) DeletePostStatKey(ctx context.Context, key string) error {
+	return r.rdb.Del(ctx, key).Err()
 }
 
 func (r *postRepo) BumpHottestCacheVersion(ctx context.Context) error {

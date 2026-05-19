@@ -5,6 +5,8 @@ import (
 	"MathOverflow/common/client"
 	"MathOverflow/common/config"
 	"MathOverflow/common/middleware"
+	common "MathOverflow/common/model"
+	"MathOverflow/common/outbox"
 	"MathOverflow/common/utils"
 	handler "MathOverflow/services/user/internal/handler"
 	"MathOverflow/services/user/internal/model"
@@ -17,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -46,7 +49,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := pg.AutoMigrate(&model.User{}); err != nil {
+	if err := pg.AutoMigrate(&model.User{}, &common.OutboxMessage{}); err != nil {
 		panic(err)
 	}
 
@@ -67,15 +70,23 @@ func main() {
 	sessionRepo := repository.NewSessionRepository(rdb)
 	fileRepo := repository.NewFileRepository(minio)
 
-	userService := service.NewUserService(cfg, userRepo, sessionRepo, fileRepo, rabbit)
+	userService := service.NewUserService(cfg, userRepo, sessionRepo, fileRepo)
 	userHandler := handler.NewUserHandler(userService)
 	userServer := handler.NewUserServer(userService)
+	outboxMessageWorker := outbox.NewMessageWorker(pg, rabbit, "forum-user-events", "User-Outbox-Worker", func(message common.OutboxMessage, _ *client.RabbitMQClient) string {
+		return message.Topic
+	})
 
 	// 并发启动gin和gRPC
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		interval := 3 * time.Second
+		go outboxMessageWorker.Run(ctx, interval, 100)
+		return nil
+	})
 	eg.Go(func() error {
 		r := router.SetupRouter(rdb, userHandler)
 		srv := &http.Server{

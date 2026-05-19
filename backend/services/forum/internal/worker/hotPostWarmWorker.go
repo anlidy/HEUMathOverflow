@@ -7,6 +7,7 @@ import (
 
 	"MathOverflow/common/utils"
 	"MathOverflow/services/forum/internal/cache"
+	"MathOverflow/services/forum/internal/model"
 	"MathOverflow/services/forum/internal/repository"
 
 	"github.com/redis/go-redis/v9"
@@ -71,14 +72,12 @@ func (w *HotPostWarmWorker) Run(ctx context.Context, interval time.Duration, top
 
 			// 预热热点帖子详情缓存
 			for _, id := range hotIDs {
-				if _, ok, _ := w.postCache.Get(ctx, id); ok { //如果缓存已经存在则跳过
-					continue
-				}
-				post, err := w.postRepo.FindPostByID(id)
+				_, err := w.postCache.WarmHotPost(ctx, id, func(ctx context.Context) (model.Post, error) {
+					return w.postRepo.FindPostByID(id)
+				})
 				if err != nil {
-					continue
+					utils.Logger().WithField("worker", w.name).WithField("post_id", id).WithError(err).Warn("warm hot post cache failed")
 				}
-				_ = w.postCache.SetHot(ctx, id, post)
 			}
 
 		case <-ctx.Done():

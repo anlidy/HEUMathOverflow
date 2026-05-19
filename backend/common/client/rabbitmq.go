@@ -3,7 +3,6 @@ package client
 import (
 	"MathOverflow/common/config"
 	"MathOverflow/common/utils"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -146,19 +145,13 @@ func (c *RabbitMQClient) Close() error {
 }
 
 // 生产者-事件发布
-func (c *RabbitMQClient) PublishEvent(routeKey string, payload any) error {
+func (c *RabbitMQClient) PublishEvent(routeKey string, body []byte) error {
 	if c == nil {
 		return fmt.Errorf("mq client is nil")
 	}
 
 	if c.breaker != nil && !c.breaker.Allow() {
 		return fmt.Errorf("rabbitmq circuit breaker is open")
-	}
-
-	// 业务数据序列化成 JSON
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("mq payload marshal error: %w", err)
 	}
 
 	const (

@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -15,17 +14,16 @@ import (
 )
 
 type PostCacheConfig struct {
-	L1Size            int
 	VisitWindow       time.Duration
 	HotVisitThreshold int64
 	HotTTLMin         time.Duration
 	HotTTLMax         time.Duration
+	HotAggregateTTL   time.Duration
 	LockTTL           time.Duration
 }
 
 type PostCache struct {
 	rdb   *redis.Client
-	l1    *LRU[int64, model.Post]
 	mutex *RedisMutex
 	sf    singleflight.Group
 	cfg   PostCacheConfig
@@ -36,14 +34,11 @@ type Hotness interface {
 }
 
 func NewPostCache(rdb *redis.Client, cfg PostCacheConfig) *PostCache {
-	if cfg.L1Size <= 0 {
-		cfg.L1Size = 1000
-	}
 	if cfg.VisitWindow <= 0 {
-		cfg.VisitWindow = 60 * time.Second
+		cfg.VisitWindow = 5 * time.Minute
 	}
 	if cfg.HotVisitThreshold <= 0 {
-		cfg.HotVisitThreshold = 10
+		cfg.HotVisitThreshold = 50
 	}
 	if cfg.HotTTLMin <= 0 {
 		cfg.HotTTLMin = 5 * time.Minute
@@ -51,22 +46,17 @@ func NewPostCache(rdb *redis.Client, cfg PostCacheConfig) *PostCache {
 	if cfg.HotTTLMax <= 0 {
 		cfg.HotTTLMax = 10 * time.Minute
 	}
+	if cfg.HotAggregateTTL <= 0 {
+		cfg.HotAggregateTTL = 10 * time.Minute
+	}
 	if cfg.LockTTL <= 0 {
 		cfg.LockTTL = 5 * time.Second
 	}
 	return &PostCache{
 		rdb:   rdb,
-		l1:    NewLRU[int64, model.Post](cfg.L1Size),
 		mutex: NewRedisMutex(rdb),
 		cfg:   cfg,
 	}
-}
-
-func (c *PostCache) visitKey(postID int64) string { return fmt.Sprintf("post:visit:%d", postID) }
-func (c *PostCache) postKey(postID int64) string  { return fmt.Sprintf("post:%d", postID) }
-func (c *PostCache) lockKey(postID int64) string  { return fmt.Sprintf("lock:post:%d", postID) }
-func (c *PostCache) hotBucketKey(t time.Time) string {
-	return fmt.Sprintf("post:hot:%s", t.Format("2006010215")) // 小时桶
 }
 
 // RecordVisit implements: INCR + EXPIRE 60s.
@@ -76,14 +66,14 @@ func (c *PostCache) RecordVisit(ctx context.Context, postID int64) (int64, bool,
 	}
 
 	now := time.Now()
-	bucketKey := c.hotBucketKey(now)
+	bucketKey := postHotBucketKey(now)
 	pipe := c.rdb.Pipeline()
 	// 写入当前小时桶
 	pipe.ZIncrBy(ctx, bucketKey, 1, strconv.FormatInt(postID, 10))
 	// 桶TTL（略大于24h，避免边界问题）
 	pipe.Expire(ctx, bucketKey, 25*time.Hour)
 	// 短期热点计数（60s窗口）
-	incrCmd := pipe.Incr(ctx, c.visitKey(postID))
+	incrCmd := pipe.Incr(ctx, postVisitKey(postID))
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return 0, false, err
@@ -92,7 +82,7 @@ func (c *PostCache) RecordVisit(ctx context.Context, postID int64) (int64, bool,
 	n := incrCmd.Val()
 	// 只在第一次设置 visitKey TTL（固定窗口）
 	if n == 1 {
-		_ = c.rdb.Expire(ctx, c.visitKey(postID), c.cfg.VisitWindow).Err()
+		_ = c.rdb.Expire(ctx, postVisitKey(postID), c.cfg.VisitWindow).Err()
 	}
 
 	return n, n >= c.cfg.HotVisitThreshold, nil
@@ -100,13 +90,31 @@ func (c *PostCache) RecordVisit(ctx context.Context, postID int64) (int64, bool,
 
 // 聚合24h桶内数据
 func (c *PostCache) GetHot24h(ctx context.Context, topN int64) ([]string, error) {
+	if c == nil || c.rdb == nil {
+		return nil, nil
+	}
+	if topN <= 0 {
+		topN = 100
+	}
+
+	aggregateKey := postHotAggregateKey(topN)
+	raw, err := c.rdb.Get(ctx, aggregateKey).Bytes()
+	if err == nil {
+		var cached []string
+		if err := json.Unmarshal(raw, &cached); err == nil {
+			return cached, nil
+		}
+	} else if err != redis.Nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	keys := make([]string, 0, 24)
 
 	// 合并过去24个桶
 	for i := 0; i < 24; i++ {
 		t := now.Add(-time.Duration(i) * time.Hour)
-		keys = append(keys, c.hotBucketKey(t))
+		keys = append(keys, postHotBucketKey(t))
 	}
 
 	// 聚合
@@ -127,6 +135,10 @@ func (c *PostCache) GetHot24h(ctx context.Context, topN int64) ([]string, error)
 	for i := 0; i < n; i++ {
 		res = append(res, zs[i].Member.(string))
 	}
+
+	if raw, err := json.Marshal(res); err == nil {
+		_ = c.rdb.Set(ctx, aggregateKey, raw, c.cfg.HotAggregateTTL).Err()
+	}
 	return res, nil
 }
 
@@ -135,7 +147,7 @@ func (c *PostCache) IsHot(ctx context.Context, postID int64) (bool, int64, error
 	if c == nil || c.rdb == nil {
 		return false, 0, nil
 	}
-	n, err := c.rdb.Get(ctx, c.visitKey(postID)).Int64()
+	n, err := c.rdb.Get(ctx, postVisitKey(postID)).Int64()
 	if err == redis.Nil {
 		return false, 0, nil
 	}
@@ -150,27 +162,12 @@ func (c *PostCache) Get(ctx context.Context, postID int64) (model.Post, bool, er
 	if c == nil {
 		return zero, false, nil
 	}
-	if c.l1 != nil {
-		if v, ok := c.l1.Get(postID); ok {
-			return v, true, nil
-		}
-	}
 	if c.rdb == nil {
 		return zero, false, nil
 	}
 
-	key := c.postKey(postID)
-	pipe := c.rdb.Pipeline()
-	getCmd := pipe.Get(ctx, key)
-	ttlCmd := pipe.TTL(ctx, key)
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		if err == redis.Nil {
-			return zero, false, nil
-		}
-		return zero, false, err
-	}
-
+	key := postDetailKey(postID)
+	getCmd := c.rdb.Get(ctx, key)
 	raw, err := getCmd.Bytes()
 	if err != nil {
 		if err == redis.Nil {
@@ -181,11 +178,6 @@ func (c *PostCache) Get(ctx context.Context, postID int64) (model.Post, bool, er
 	var post model.Post
 	if err := json.Unmarshal(raw, &post); err != nil {
 		return zero, false, err
-	}
-	ttl := ttlCmd.Val()
-	if ttl > 0 && c.l1 != nil {
-		l1TTL := min(ttl, 1*time.Minute) // 防止ttl过长导致不新鲜
-		c.l1.Add(postID, post, l1TTL)
 	}
 	return post, true, nil
 }
@@ -206,24 +198,47 @@ func (c *PostCache) SetHot(ctx context.Context, postID int64, post model.Post) e
 	if err != nil {
 		return err
 	}
-	if err := c.rdb.Set(ctx, c.postKey(postID), raw, ttl).Err(); err != nil {
+	if err := c.rdb.Set(ctx, postDetailKey(postID), raw, ttl).Err(); err != nil {
 		return err
 	}
-	if c.l1 != nil { // redis -> l1双写
-		c.l1.Add(postID, post, ttl)
-	}
 	return nil
+}
+
+func (c *PostCache) WarmHotPost(ctx context.Context, postID int64, loader func(context.Context) (model.Post, error)) (bool, error) {
+	if c == nil || c.rdb == nil {
+		return false, nil
+	}
+	if _, ok, err := c.Get(ctx, postID); err == nil && ok {
+		return false, nil
+	}
+
+	lockKey := postLockKey(postID)
+	token, locked, err := c.mutex.TryLock(ctx, lockKey, c.cfg.LockTTL)
+	if err != nil || !locked {
+		return false, err
+	}
+	defer func() { _ = c.mutex.Unlock(ctx, lockKey, token) }()
+
+	if _, ok, err := c.Get(ctx, postID); err == nil && ok {
+		return false, nil
+	}
+
+	post, err := loader(ctx)
+	if err != nil {
+		return false, err
+	}
+	if err := c.SetHot(ctx, postID, post); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (c *PostCache) Invalidate(ctx context.Context, postID int64) {
 	if c == nil {
 		return
 	}
-	if c.l1 != nil {
-		c.l1.Remove(postID)
-	}
 	if c.rdb != nil {
-		_ = c.rdb.Del(ctx, c.postKey(postID)).Err()
+		_ = c.rdb.Del(ctx, postDetailKey(postID)).Err()
 	}
 }
 
@@ -242,9 +257,10 @@ func (c *PostCache) GetOrLoad(ctx context.Context, postID int64, hot bool, loade
 		}
 
 		// cross-instance mutex
-		token, locked, e := c.mutex.TryLock(ctx, c.lockKey(postID), c.cfg.LockTTL)
+		lockKey := postLockKey(postID)
+		token, locked, e := c.mutex.TryLock(ctx, lockKey, c.cfg.LockTTL)
 		if e == nil && locked {
-			defer func() { _ = c.mutex.Unlock(ctx, c.lockKey(postID), token) }()
+			defer func() { _ = c.mutex.Unlock(ctx, lockKey, token) }()
 			p, e := loader(ctx)
 			if e != nil {
 				return model.Post{}, e
@@ -256,12 +272,10 @@ func (c *PostCache) GetOrLoad(ctx context.Context, postID int64, hot bool, loade
 		}
 
 		// wait for others to fill
-		deadline := time.Now().Add(300 * time.Millisecond)
-		for time.Now().Before(deadline) {
-			if p, ok, e2 := c.Get(ctx, postID); e2 == nil && ok {
-				return p, nil
-			}
-			time.Sleep(30 * time.Millisecond)
+		if p, ok := waitForCacheFill(ctx, 300*time.Millisecond, 20*time.Millisecond, 80*time.Millisecond, func(ctx context.Context) (model.Post, bool, error) {
+			return c.Get(ctx, postID)
+		}); ok {
+			return p, nil
 		}
 
 		p, e2 := loader(ctx)

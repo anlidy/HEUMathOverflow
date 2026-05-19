@@ -6,7 +6,7 @@ type ReplyCreate struct {
 	ParentReplyID *int64   `json:"parent_reply_id,string"`
 	Content       string   `json:"content" binding:"required"`
 	VoiceURL      string   `json:"voice_url"`
-	ImageURLs     []string `bson:"image_urls"`
+	ImageURLs     []string `json:"image_urls" bson:"image_urls"`
 }
 
 type ReplyUpdate struct {

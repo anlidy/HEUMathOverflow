@@ -3,10 +3,13 @@ package worker
 import (
 	"MathOverflow/common/client"
 	"MathOverflow/common/event"
+	common "MathOverflow/common/model"
+	"MathOverflow/common/outbox"
 	"MathOverflow/common/utils"
 	"MathOverflow/services/forum/internal/model"
 	"MathOverflow/services/forum/internal/repository"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -16,20 +19,25 @@ import (
 )
 
 type PostWorker struct {
-	pg   *gorm.DB
-	rdb  *redis.Client
-	mq   *client.RabbitMQClient
-	name string
+	pg       *gorm.DB
+	rdb      *redis.Client
+	postRepo repository.PostRepo
+	outbox   outbox.Store
+	name     string
 }
 
 func NewPostWorker(pg *gorm.DB, rdb *redis.Client, mq *client.RabbitMQClient) PostWorker {
-	return PostWorker{pg: pg, rdb: rdb, mq: mq, name: "Post-Worker"}
+	_ = mq
+	return PostWorker{pg: pg, rdb: rdb, postRepo: repository.NewPostRepository(pg, rdb), outbox: outbox.NewStore(pg), name: "Post-Worker"}
 }
 
 // redis读取postStat
 func (w *PostWorker) getPostStat(ctx context.Context, key string) (*model.PostStat, error) {
 	var postID int64
 	_, err := fmt.Sscanf(key, "post:%d:stat", &postID)
+	if err != nil {
+		_, err = fmt.Sscanf(key, "post:%d:stat:processing", &postID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("parse error:%v", err)
 	}
@@ -68,11 +76,6 @@ func (w *PostWorker) getPostStat(ctx context.Context, key string) (*model.PostSt
 	return pc, nil
 }
 
-// 删除redis缓存
-func (w *PostWorker) DeletePostStat(ctx context.Context, key string) error {
-	return w.rdb.Del(ctx, key).Err()
-}
-
 // 从redis周期性回写数据库
 func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count int64) uint64 {
 	var keys []string
@@ -83,13 +86,23 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 	}
 	wroteAny := false
 	for _, key := range keys {
-		// 从redis读取对应key的增量
-		stat, err := w.getPostStat(ctx, key)
+		processingKey, moved, err := w.postRepo.MovePostStatToProcessing(ctx, key)
 		if err != nil {
-			utils.Logger().WithField("worker", w.name).WithField("key", key).WithError(err).Error("get post stat from redis failed")
+			utils.Logger().WithField("worker", w.name).WithField("key", key).WithError(err).Error("move post stat to processing failed")
+			continue
+		}
+		if !moved {
+			continue
+		}
+
+		// 从redis读取冻结后的增量快照
+		stat, err := w.getPostStat(ctx, processingKey)
+		if err != nil {
+			utils.Logger().WithField("worker", w.name).WithField("key", processingKey).WithError(err).Error("get post stat from redis failed")
 			continue
 		}
 		if stat == nil || stat.PostID == 0 || stat.Views == 0 && stat.Likes == 0 && stat.Stars == 0 && stat.Replies == 0 {
+			_ = w.postRepo.DeletePostStatKey(ctx, processingKey)
 			continue
 		}
 		// 批量写回数据库
@@ -102,19 +115,51 @@ func (w *PostWorker) WriteBackPost(ctx context.Context, scanCursor uint64, count
 			continue
 		}
 		wroteAny = true
-		// 发布PostStat事件
-		var evt = event.ForumPostPayload{
-			PostID:  stat.PostID,
-			Views:   stat.Views,
-			Likes:   stat.Likes,
-			Stars:   stat.Stars,
-			Replies: stat.Replies,
-		}
-		event.PublishPostEvent(w.mq, event.ForumPostStatUpdated, evt)
 
-		// 清除redis缓存
-		if err := w.DeletePostStat(ctx, key); err != nil {
-			utils.Logger().WithField("worker", w.name).WithField("key", key).WithError(err).Error("delete post stat from redis failed")
+		post, err := w.postRepo.FindPostByID(stat.PostID)
+		if err != nil {
+			utils.Logger().WithField("worker", w.name).WithField("post_id", stat.PostID).WithError(err).Error("load latest post stat snapshot failed")
+			continue
+		}
+
+		favors, totalScore := utils.CalcPostScores(&common.PostStat{
+			Status:    int(post.Status),
+			CreatedAt: post.CreatedAt,
+			Views:     post.Views,
+			Likes:     post.Likes,
+			Stars:     post.Stars,
+			Replies:   post.Replies,
+		})
+
+		// 发布PostStat绝对值快照事件
+		var evt = event.ForumPostPayload{
+			PostID:     post.ID,
+			Status:     int(post.Status),
+			CreatedAt:  post.CreatedAt,
+			Views:      post.Views,
+			Likes:      post.Likes,
+			Stars:      post.Stars,
+			Replies:    post.Replies,
+			Favors:     favors,
+			TotalScore: totalScore,
+		}
+		eventBody, err := json.Marshal(event.ForumPostEvent{
+			Type:      event.ForumPostStatUpdated,
+			Payload:   evt,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			utils.Logger().WithField("worker", w.name).WithField("post_id", post.ID).WithError(err).Error("marshal post stat event failed")
+			continue
+		}
+		if err := w.outbox.AddMessageInTx(ctx, w.pg, "post", post.ID, string(event.ForumPostStatUpdated), "forum-post-events", json.RawMessage(eventBody)); err != nil {
+			utils.Logger().WithField("worker", w.name).WithField("post_id", post.ID).WithError(err).Error("save post stat event to outbox failed")
+			continue
+		}
+
+		// 删除已处理的冻结快照
+		if err := w.postRepo.DeletePostStatKey(ctx, processingKey); err != nil {
+			utils.Logger().WithField("worker", w.name).WithField("key", processingKey).WithError(err).Error("delete post stat from redis failed")
 			continue
 		}
 	}

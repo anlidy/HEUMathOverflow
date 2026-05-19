@@ -6,6 +6,7 @@ import (
 	"MathOverflow/common/config"
 	"MathOverflow/common/event"
 	common "MathOverflow/common/model"
+	"MathOverflow/common/outbox"
 	"MathOverflow/common/utils"
 	"MathOverflow/services/forum/internal/cache"
 	"MathOverflow/services/forum/internal/model"
@@ -14,7 +15,7 @@ import (
 	"MathOverflow/services/forum/internal/model/response"
 	"MathOverflow/services/forum/internal/repository"
 	"context"
-	"fmt"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -44,13 +45,16 @@ type postService struct {
 	cfg            config.Config
 	postRepo       repository.PostRepo
 	fileRepo       repository.FileRepo
+	replyRepo      repository.ReplyRepo
 	userSnapshot   repository.UserSnapshotRepo
 	tokenRepo      repository.ClientTokenRepo
 	postCache      *cache.PostCache
 	servName       string
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
-	mq             *client.RabbitMQClient
+	userResolver   *userResolver
+	statWriter     *statWriter
+	fileCleanup    *fileCleanup
 }
 
 func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
@@ -75,38 +79,60 @@ func (s *postService) getUserClient() (userpb.UserServiceClient, error) {
 	return s.userClient, nil
 }
 
-func NewPostService(cfg config.Config, rabbit *client.RabbitMQClient, postRepo repository.PostRepo, fileRepo repository.FileRepo, userSnapshot repository.UserSnapshotRepo, tokenRepo repository.ClientTokenRepo, postCache *cache.PostCache) PostService {
-	return &postService{
+func NewPostService(cfg config.Config, _ *client.RabbitMQClient, postRepo repository.PostRepo, replyRepo repository.ReplyRepo, fileRepo repository.FileRepo, userSnapshot repository.UserSnapshotRepo, tokenRepo repository.ClientTokenRepo, postCache *cache.PostCache) PostService {
+	svc := &postService{
 		cfg:          cfg,
-		mq:           rabbit,
 		postRepo:     postRepo,
+		replyRepo:    replyRepo,
 		fileRepo:     fileRepo,
 		userSnapshot: userSnapshot,
 		tokenRepo:    tokenRepo,
 		postCache:    postCache,
 		servName:     "Post-Service",
+		statWriter:   newStatWriter("Post-Service"),
+		fileCleanup:  newFileCleanup("Post-Service", fileRepo),
 	}
+	svc.userResolver = newUserResolver(userSnapshot, svc.getUserClient)
+	return svc
 }
 
-func (s *postService) snapshotToUserInfo(snap model.UserSnapshot) response.UserInfo {
-	return response.UserInfo{
-		ID:        snap.UserID,
-		Username:  snap.Username,
-		Role:      snap.Role,
-		AvatarUrl: snap.AvatarURL,
+func (s *postService) selectRagAnswers(ctx context.Context, postID int64, replies []model.Reply) ([]event.PostAnswer, error) {
+	selected := make([]model.Reply, 0)
+	selectedIDs := make(map[int64]struct{})
+	for _, reply := range replies {
+		if reply.Status == model.AuthorSelected || reply.Status == model.TeacherCertified {
+			selected = append(selected, reply)
+			selectedIDs[reply.ID] = struct{}{}
+		}
 	}
-}
-
-func (s *postService) getUserInfoFromSnapshot(ctx context.Context, userID int64) (*response.UserInfo, bool) {
-	if s.userSnapshot == nil {
-		return nil, false
+	if len(selected) < 3 {
+		topReplies, err := s.replyRepo.FindTopRepliesByLikes(postID, 3)
+		if err != nil {
+			return nil, err
+		}
+		for _, reply := range topReplies {
+			if len(selected) >= 3 {
+				break
+			}
+			if _, ok := selectedIDs[reply.ID]; ok {
+				continue
+			}
+			selected = append(selected, reply)
+			selectedIDs[reply.ID] = struct{}{}
+		}
 	}
-	snap, err := s.userSnapshot.FindByID(userID)
-	if err != nil {
-		return nil, false
+	if len(selected) > 3 {
+		selected = selected[:3]
 	}
-	ui := s.snapshotToUserInfo(snap)
-	return &ui, true
+	answers := make([]event.PostAnswer, 0, len(selected))
+	for _, reply := range selected {
+		answers = append(answers, event.PostAnswer{
+			ReplyID:   reply.ID,
+			ReplierID: reply.ReplierID,
+			Content:   reply.Content,
+		})
+	}
+	return answers, nil
 }
 
 // 创建新帖子
@@ -229,7 +255,30 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		Status:    model.Unanswered,
 		CreatedAt: time.Now(),
 	}
-	err = s.postRepo.CreatePost(&post)
+	err = s.postRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Post{}).Create(&post).Error; err != nil {
+			return err
+		}
+		payload := event.ForumPostPayload{
+			PostID:     postID,
+			AuthorID:   post.AuthorID,
+			AuthorName: authorName,
+			Title:      post.Title,
+			Content:    post.Content,
+			Tags:       post.Tags,
+			Status:     int(post.Status),
+			CreatedAt:  post.CreatedAt,
+		}
+		eventBody, err := json.Marshal(event.ForumPostEvent{
+			Type:      event.ForumPostCreated,
+			Payload:   payload,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		return s.postRepo.AddOutboxMessageInTx(ctx, tx, string(event.ForumPostCreated), postID, eventBody)
+	})
 	if err != nil {
 		if utils.IsPgDuplicateKey(err) {
 			logger.WithError(err).Warn("create post duplicate key")
@@ -250,18 +299,6 @@ func (s *postService) CreateNewPost(ctx context.Context, userID int64, req reque
 		}
 	}
 
-	// 发布帖子创建消息
-	var payload = event.ForumPostPayload{
-		PostID:     postID,
-		AuthorID:   post.AuthorID,
-		AuthorName: authorName, // 创建时需要存一次用户名
-		Title:      post.Title,
-		Content:    post.Content,
-		Tags:       post.Tags,
-		Status:     int(post.Status),
-		CreatedAt:  post.CreatedAt,
-	}
-	event.PublishPostEvent(s.mq, event.ForumPostCreated, payload)
 	return postID, syserror.NoError
 }
 
@@ -305,45 +342,7 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 		}
 	}
 
-	// 优先从 forum DB 的用户快照读取，避免强依赖 user-service
-	userInfo, ok := s.getUserInfoFromSnapshot(ctx, post.AuthorID)
-	if !ok {
-		// 缺失时再回退到 gRPC（并回写快照），避免历史数据在首次请求时展示异常
-		var userDeleted = false
-		userClient, err := s.getUserClient()
-		if err == nil {
-			resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: post.AuthorID})
-			if err != nil {
-				st, ok := status.FromError(err)
-				if ok && st.Code() == codes.NotFound {
-					userDeleted = true
-				} else {
-					logger.WithError(err).Warn("get user info via grpc failed, fallback to deleted user")
-				}
-			} else {
-				userInfo = &response.UserInfo{
-					ID:        resp.UserId,
-					Username:  resp.Username,
-					Role:      int(resp.Role),
-					AvatarUrl: resp.AvatarUrl,
-				}
-				if s.userSnapshot != nil {
-					_ = s.userSnapshot.Upsert(model.UserSnapshot{
-						UserID:    resp.UserId,
-						Username:  resp.Username,
-						Role:      int(resp.Role),
-						AvatarURL: resp.AvatarUrl,
-					})
-				}
-			}
-		}
-		if userInfo == nil {
-			userInfo = &response.UserInfo{Username: "用户已注销"}
-		}
-		if userDeleted {
-			userInfo = &response.UserInfo{Username: "用户已注销"}
-		}
-	}
+	userInfo := s.userResolver.ResolveOne(ctx, post.AuthorID, logger)
 
 	// 聚合返回查询结果
 	postData := &response.PostData{
@@ -352,16 +351,11 @@ func (s *postService) GetOnePost(ctx context.Context, postID, userID int64) (*re
 		Starred: starred,
 	}
 
-	// 后台完成同步
-	go func() {
-		// redis的views+1
-		var ctx = context.Background()
-		if err := s.postRepo.IncreasePostStat(ctx, postID, "views"); err != nil {
-			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post views failed")
-		}
-	}()
+	s.statWriter.Submit("increase post views", func(ctx context.Context) error {
+		return s.postRepo.IncreasePostStat(ctx, postID, "views")
+	})
 
-	return userInfo, postData, syserror.NoError
+	return &userInfo, postData, syserror.NoError
 }
 
 // 批量获取帖子
@@ -380,74 +374,12 @@ func (s *postService) GetManyPosts(ctx context.Context, page, limit int, order m
 		userIDs[i] = post.AuthorID
 	}
 
-	// 1) 快照优先
-	dedup := make(map[int64]struct{}, len(userIDs))
-	uniqIDs := make([]int64, 0, len(userIDs))
-	for _, uid := range userIDs {
-		if _, ok := dedup[uid]; ok {
-			continue
-		}
-		dedup[uid] = struct{}{}
-		uniqIDs = append(uniqIDs, uid)
-	}
-
-	snapMap := map[int64]model.UserSnapshot{}
-	if s.userSnapshot != nil {
-		if m, err := s.userSnapshot.FindMapByIDs(uniqIDs); err == nil {
-			snapMap = m
-		} else {
-			logger.WithError(err).Warn("load user snapshots failed")
-		}
-	}
-
-	// 2) 缺失快照时回退 gRPC 并回写
-	grpcMap := map[int64]*userpb.GetUserResponse{}
-	missing := make([]int64, 0)
-	for _, uid := range uniqIDs {
-		if _, ok := snapMap[uid]; ok {
-			continue
-		}
-		missing = append(missing, uid)
-	}
-	if len(missing) > 0 {
-		userClient, err := s.getUserClient()
-		if err == nil {
-			resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: missing})
-			if err != nil {
-				logger.WithError(err).Warn("batch get user info via grpc failed")
-			} else {
-				grpcMap = resp.Users
-				if s.userSnapshot != nil {
-					for _, u := range grpcMap {
-						_ = s.userSnapshot.Upsert(model.UserSnapshot{
-							UserID:    u.UserId,
-							Username:  u.Username,
-							Role:      int(u.Role),
-							AvatarURL: u.AvatarUrl,
-						})
-					}
-				}
-			}
-		}
-	}
+	userInfoMap := s.userResolver.ResolveMany(ctx, userIDs, logger)
 
 	// 聚合返回查询结果
 	postDatas := make([]response.MultiPostData, len(posts))
 	for i := range posts {
-		if snap, ok := snapMap[posts[i].AuthorID]; ok {
-			postDatas[i].UserInfo = s.snapshotToUserInfo(snap)
-		} else if u, ok := grpcMap[posts[i].AuthorID]; ok {
-			postDatas[i].UserInfo = response.UserInfo{
-				ID:        u.UserId,
-				Username:  u.Username,
-				Role:      int(u.Role),
-				AvatarUrl: u.AvatarUrl,
-			}
-		} else {
-			postDatas[i].UserInfo = response.UserInfo{
-				Username: "用户已注销",
-			}
-		}
+		postDatas[i].UserInfo = userInfoMap[posts[i].AuthorID]
 		postDatas[i].PostData.Post = posts[i]
 	}
 	return postDatas, syserror.NoError
@@ -502,7 +434,33 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 		ImageURLs: post.ImageURLs,
 		Tags:      post.Tags,
 	}
-	_, err = s.postRepo.UpdatePost(newPost)
+	err = s.postRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		result := tx.Model(&model.Post{}).Where("id = ?", newPost.ID).Updates(newPost)
+		if result.Error != nil {
+			return result.Error
+		}
+		payload := event.ForumPostPayload{
+			PostID:    postID,
+			Title:     post.Title,
+			Content:   post.Content,
+			Tags:      post.Tags,
+			Status:    int(post.Status),
+			CreatedAt: post.CreatedAt,
+			Views:     post.Views,
+			Likes:     post.Likes,
+			Stars:     post.Stars,
+			Replies:   post.Replies,
+		}
+		eventBody, err := json.Marshal(event.ForumPostEvent{
+			Type:      event.ForumPostUpdated,
+			Payload:   payload,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		return s.postRepo.AddOutboxMessageInTx(ctx, tx, string(event.ForumPostUpdated), postID, eventBody)
+	})
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -515,35 +473,7 @@ func (s *postService) UpdateOnePost(ctx context.Context, userID int64, postID in
 		s.postCache.Invalidate(ctx, postID)
 	}
 
-	// 发布事件
-	var payload = event.ForumPostPayload{
-		PostID:    postID,
-		Title:     post.Title,
-		Content:   post.Content,
-		Tags:      post.Tags,
-		Status:    int(post.Status),
-		CreatedAt: post.CreatedAt,
-		Views:     post.Views,
-		Likes:     post.Likes,
-		Stars:     post.Stars,
-		Replies:   post.Replies,
-	}
-	event.PublishPostEvent(s.mq, event.ForumPostUpdated, payload)
-
-	// 后台删除图片
-	go func(ctx context.Context) {
-		for _, delUrl := range req.DeleteImageURLs {
-			filename := strings.TrimPrefix(delUrl, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			if err := s.fileRepo.DeleteFile(ctx, filename); err != nil {
-				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting post file")
-					continue
-				}
-				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete post file failed")
-				return
-			}
-		}
-	}(ctx)
+	s.fileCleanup.SubmitObjectURLs("delete post images", s.cfg.Minio.Bucket, req.DeleteImageURLs)
 	return syserror.NoError
 }
 
@@ -553,16 +483,61 @@ func (s *postService) SetPostCertified(ctx context.Context, postID int64, req re
 		return syserror.PermissionDeniedError
 	}
 
-	ok, err := s.postRepo.UpdateColumn(postID, "is_certified", req.IsCertified)
+	post, err := s.postRepo.FindPostByID(postID)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return syserror.NotFoundError
+		}
+		logger.WithError(err).Error("find post failed before set certified")
+		return syserror.InternalError
+	}
+	replies, err := s.replyRepo.FindRepliesByPostID(postID)
+	if err != nil {
+		logger.WithError(err).Error("find post replies failed before set certified")
+		return syserror.InternalError
+	}
+	answers, err := s.selectRagAnswers(ctx, postID, replies)
+	if err != nil {
+		logger.WithError(err).Error("select rag answers failed before set certified")
+		return syserror.InternalError
+	}
+
+	err = s.postRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		result := tx.Model(&model.Post{}).Where("id = ?", postID).Update("is_certified", req.IsCertified)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+
+		var ragType event.RagEventType = event.RagDataDeleted
+		if req.IsCertified {
+			ragType = event.RagDataCreated
+		}
+		eventBody, err := json.Marshal(event.RagDataEvent{
+			Type: ragType,
+			Payload: event.RagDataPayload{
+				PostID:   post.ID,
+				AuthorID: post.AuthorID,
+				Title:    post.Title,
+				Content:  post.Content,
+				Tags:     post.Tags,
+				Answers:  answers,
+			},
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		return outbox.NewStore(tx).AddMessageInTx(ctx, tx, "post", post.ID, string(ragType), "rag-events", json.RawMessage(eventBody))
+	})
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
 		}
 		logger.WithError(err).Error("set post certified failed")
 		return syserror.InternalError
-	}
-	if !ok {
-		return syserror.NotFoundError
 	}
 
 	_ = s.postRepo.BumpHottestCacheVersion(ctx)
@@ -584,35 +559,7 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 		logger.WithError(err).Error("find post detail failed")
 		return syserror.InternalError
 	}
-	// 获取帖子作者角色（快照优先，缺失时回退 gRPC；NotFound 视为已注销）
-	authorRole := 0
-	if snap, ok := s.getUserInfoFromSnapshot(ctx, post.AuthorID); ok {
-		authorRole = snap.Role
-	} else {
-		userClient, err := s.getUserClient()
-		if err == nil {
-			resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: post.AuthorID})
-			if err != nil {
-				st, ok := status.FromError(err)
-				if ok && st.Code() == codes.NotFound {
-					authorRole = 0
-				} else {
-					logger.WithError(err).Warn("get author role via grpc failed, treat as deleted user")
-					authorRole = 0
-				}
-			} else {
-				authorRole = int(resp.Role)
-				if s.userSnapshot != nil {
-					_ = s.userSnapshot.Upsert(model.UserSnapshot{
-						UserID:    resp.UserId,
-						Username:  resp.Username,
-						Role:      int(resp.Role),
-						AvatarURL: resp.AvatarUrl,
-					})
-				}
-			}
-		}
-	}
+	authorRole := s.userResolver.ResolveOne(ctx, post.AuthorID, logger).Role
 
 	// 验证操作者权限是否低于帖子作者
 	if role <= authorRole {
@@ -624,7 +571,56 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 
 	// 删除帖子
 	// 附属的回贴会一并删除
-	err = s.postRepo.DeletePost(postID)
+	replies, err := s.replyRepo.FindRepliesByPostID(postID)
+	if err != nil {
+		logger.WithError(err).Error("find post replies failed before delete post")
+		return syserror.InternalError
+	}
+	ragAnswers, err := s.selectRagAnswers(ctx, postID, replies)
+	if err != nil {
+		logger.WithError(err).Error("select rag answers failed before delete post")
+		return syserror.InternalError
+	}
+	err = s.postRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		result := tx.Where("id = ?", postID).Delete(&model.Post{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		payload := event.ForumPostPayload{PostID: postID}
+		eventBody, err := json.Marshal(event.ForumPostEvent{
+			Type:      event.ForumPostDeleted,
+			Payload:   payload,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		if err := s.postRepo.AddOutboxMessageInTx(ctx, tx, string(event.ForumPostDeleted), postID, eventBody); err != nil {
+			return err
+		}
+		if !post.IsCertified {
+			return nil
+		}
+		ragEventBody, err := json.Marshal(event.RagDataEvent{
+			Type: event.RagDataDeleted,
+			Payload: event.RagDataPayload{
+				PostID:   post.ID,
+				AuthorID: post.AuthorID,
+				Title:    post.Title,
+				Content:  post.Content,
+				Tags:     post.Tags,
+				Answers:  ragAnswers,
+			},
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		return outbox.NewStore(tx).AddMessageInTx(ctx, tx, "post", post.ID, string(event.RagDataDeleted), "rag-events", json.RawMessage(ragEventBody))
+	})
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return syserror.NotFoundError
@@ -637,25 +633,7 @@ func (s *postService) DeleteOnePost(ctx context.Context, postID, userID int64, r
 		s.postCache.Invalidate(ctx, postID)
 	}
 
-	// 发布事件
-	var payload = event.ForumPostPayload{PostID: postID}
-	event.PublishPostEvent(s.mq, event.ForumPostDeleted, payload)
-
-	// 后台删除帖子包含的文件
-	go func(ctx context.Context) {
-		urls := post.ImageURLs
-		for _, url := range urls {
-			filename := strings.TrimPrefix(url, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			if err := s.fileRepo.DeleteFile(ctx, url); err != nil {
-				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting post file")
-					continue
-				}
-				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete post file failed")
-				return
-			}
-		}
-	}(ctx)
+	s.fileCleanup.SubmitObjectURLs("delete post files", s.cfg.Minio.Bucket, post.ImageURLs)
 
 	return syserror.NoError
 }
@@ -679,10 +657,9 @@ func (s *postService) LikeOnePost(ctx context.Context, postID, userID int64) sys
 		// already liked -> idempotent success
 		return syserror.NoError
 	}
-	// redis的likes+1
-	if err := s.postRepo.IncreasePostStat(ctx, postID, "likes"); err != nil {
-		utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post likes failed")
-	}
+	s.statWriter.Submit("increase post likes", func(ctx context.Context) error {
+		return s.postRepo.IncreasePostStat(ctx, postID, "likes")
+	})
 	return syserror.NoError
 }
 
@@ -698,10 +675,9 @@ func (s *postService) CancelLikeOnePost(ctx context.Context, postID, userID int6
 		// already unliked -> idempotent success
 		return syserror.NoError
 	}
-	// redis的likes-1
-	if err := s.postRepo.DecreasePostStat(ctx, postID, "likes"); err != nil {
-		utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post likes failed")
-	}
+	s.statWriter.Submit("decrease post likes", func(ctx context.Context) error {
+		return s.postRepo.DecreasePostStat(ctx, postID, "likes")
+	})
 	return syserror.NoError
 }
 
@@ -729,10 +705,9 @@ func (s *postService) StarOnePost(ctx context.Context, postID, userID int64) sys
 	if !created {
 		return syserror.NoError
 	}
-	// redis的stars+1
-	if err := s.postRepo.IncreasePostStat(ctx, postID, "stars"); err != nil {
-		utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post stars failed")
-	}
+	s.statWriter.Submit("increase post stars", func(ctx context.Context) error {
+		return s.postRepo.IncreasePostStat(ctx, postID, "stars")
+	})
 	return syserror.NoError
 }
 
@@ -748,10 +723,9 @@ func (s *postService) CancelStarOnePost(ctx context.Context, postID, userID int6
 		// already unstarred -> idempotent success
 		return syserror.NoError
 	}
-	// redis的stars-1
-	if err := s.postRepo.DecreasePostStat(ctx, postID, "stars"); err != nil {
-		utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post stars failed")
-	}
+	s.statWriter.Submit("decrease post stars", func(ctx context.Context) error {
+		return s.postRepo.DecreasePostStat(ctx, postID, "stars")
+	})
 	return syserror.NoError
 }
 
@@ -776,72 +750,11 @@ func (s *postService) GetUserStarredPosts(ctx context.Context, userID int64, pag
 		userIDs[i] = post.AuthorID
 	}
 
-	// 快照优先，缺失时回退 gRPC
-	dedup := make(map[int64]struct{}, len(userIDs))
-	uniqIDs := make([]int64, 0, len(userIDs))
-	for _, uid := range userIDs {
-		if _, ok := dedup[uid]; ok {
-			continue
-		}
-		dedup[uid] = struct{}{}
-		uniqIDs = append(uniqIDs, uid)
-	}
-
-	snapMap := map[int64]model.UserSnapshot{}
-	if s.userSnapshot != nil {
-		if m, err := s.userSnapshot.FindMapByIDs(uniqIDs); err == nil {
-			snapMap = m
-		} else {
-			logger.WithError(err).Warn("load user snapshots failed")
-		}
-	}
-
-	grpcMap := map[int64]*userpb.GetUserResponse{}
-	missing := make([]int64, 0)
-	for _, uid := range uniqIDs {
-		if _, ok := snapMap[uid]; ok {
-			continue
-		}
-		missing = append(missing, uid)
-	}
-	if len(missing) > 0 {
-		userClient, err := s.getUserClient()
-		if err == nil {
-			resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: missing})
-			if err != nil {
-				logger.WithError(err).Warn("batch get user info via grpc failed")
-			} else {
-				grpcMap = resp.Users
-				if s.userSnapshot != nil {
-					for _, u := range grpcMap {
-						_ = s.userSnapshot.Upsert(model.UserSnapshot{
-							UserID:    u.UserId,
-							Username:  u.Username,
-							Role:      int(u.Role),
-							AvatarURL: u.AvatarUrl,
-						})
-					}
-				}
-			}
-		}
-	}
+	userInfoMap := s.userResolver.ResolveMany(ctx, userIDs, logger)
 
 	postDatas := make([]response.MultiPostData, len(posts))
 	for i := range posts {
-		if snap, ok := snapMap[posts[i].AuthorID]; ok {
-			postDatas[i].UserInfo = s.snapshotToUserInfo(snap)
-		} else if u, ok := grpcMap[posts[i].AuthorID]; ok {
-			postDatas[i].UserInfo = response.UserInfo{
-				ID:        u.UserId,
-				Username:  u.Username,
-				Role:      int(u.Role),
-				AvatarUrl: u.AvatarUrl,
-			}
-		} else {
-			postDatas[i].UserInfo = response.UserInfo{
-				Username: "用户已注销",
-			}
-		}
+		postDatas[i].UserInfo = userInfoMap[posts[i].AuthorID]
 		postDatas[i].PostData.Post = posts[i]
 	}
 	return postDatas, total, syserror.NoError

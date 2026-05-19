@@ -5,7 +5,6 @@ import (
 	handler "MathOverflow/services/user/internal/handler"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -13,12 +12,8 @@ func SetupRouter(rdb *redis.Client, uh handler.UserHandler) *gin.Engine {
 	r := gin.Default()
 	r.Use(
 		middleware.RequestIDMiddleware(),
-		middleware.MetricsMiddleware("user-service"),
 		middleware.LoggingMiddleware(),
 	)
-
-	// Prometheus metrics endpoint
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	user := r.Group("/user")
 

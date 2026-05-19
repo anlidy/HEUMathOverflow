@@ -2,3 +2,5 @@
 /backend/docker/**/data/**
 **/__pycache__/**
 frontend/node_modules/
+/backend/services/rag/model_server/models/
+.omo/**

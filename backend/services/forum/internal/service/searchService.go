@@ -5,7 +5,6 @@ import (
 	"MathOverflow/common/client"
 	"MathOverflow/common/config"
 	"MathOverflow/common/utils"
-	"MathOverflow/services/forum/internal/model"
 	syserror "MathOverflow/services/forum/internal/model/error"
 	"MathOverflow/services/forum/internal/model/request"
 	"MathOverflow/services/forum/internal/model/response"
@@ -29,16 +28,19 @@ type searchService struct {
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
 	servName       string
+	userResolver   *userResolver
 }
 
 func NewSearchService(cfg config.Config, es *client.ESClient, postRepo repository.PostRepo, userSnapshot repository.UserSnapshotRepo) SearchService {
-	return &searchService{
+	svc := &searchService{
 		cfg:          cfg,
 		es:           es,
 		postRepo:     postRepo,
 		userSnapshot: userSnapshot,
 		servName:     "Search-Service",
 	}
+	svc.userResolver = newUserResolver(userSnapshot, svc.getUserClient)
+	return svc
 }
 
 func (s *searchService) getUserClient() (userpb.UserServiceClient, error) {
@@ -117,82 +119,14 @@ func (s *searchService) SearchPosts(ctx context.Context, req request.SearchReque
 		return nil, 0, syserror.InternalError
 	}
 
-	// 快照优先，缺失回退 gRPC
-	dedup := make(map[int64]struct{}, len(userIDs))
-	uniqIDs := make([]int64, 0, len(userIDs))
-	for _, uid := range userIDs {
-		if _, ok := dedup[uid]; ok {
-			continue
-		}
-		dedup[uid] = struct{}{}
-		uniqIDs = append(uniqIDs, uid)
-	}
-
-	snapMap := map[int64]model.UserSnapshot{}
-	if s.userSnapshot != nil {
-		if m, err := s.userSnapshot.FindMapByIDs(uniqIDs); err == nil {
-			snapMap = m
-		} else {
-			logger.WithError(err).Warn("load user snapshots failed")
-		}
-	}
-
-	grpcMap := map[int64]*userpb.GetUserResponse{}
-	missing := make([]int64, 0)
-	for _, uid := range uniqIDs {
-		if _, ok := snapMap[uid]; ok {
-			continue
-		}
-		missing = append(missing, uid)
-	}
-	if len(missing) > 0 {
-		userClient, err := s.getUserClient()
-		if err != nil {
-			logger.WithError(err).Warn("get user client failed when filling missing snapshots")
-		} else {
-			resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: missing})
-			if err != nil {
-				logger.WithError(err).Warn("batch get user info via grpc failed")
-			} else {
-				grpcMap = resp.Users
-				if s.userSnapshot != nil {
-					for _, u := range grpcMap {
-						_ = s.userSnapshot.Upsert(model.UserSnapshot{
-							UserID:    u.UserId,
-							Username:  u.Username,
-							Role:      int(u.Role),
-							AvatarURL: u.AvatarUrl,
-						})
-					}
-				}
-			}
-		}
-	}
+	userInfoMap := s.userResolver.ResolveMany(ctx, userIDs, logger)
 
 	// 聚合返回查询结果
 	postDatas := make([]response.MultiPostData, len(postMap))
 	var idx = 0
 	for _, pid := range postIDs {
 		if post, ok := postMap[pid]; ok {
-			if snap, ok := snapMap[post.AuthorID]; ok {
-				postDatas[idx].UserInfo = response.UserInfo{
-					ID:        snap.UserID,
-					Username:  snap.Username,
-					Role:      snap.Role,
-					AvatarUrl: snap.AvatarURL,
-				}
-			} else if user, ok := grpcMap[post.AuthorID]; ok {
-				postDatas[idx].UserInfo = response.UserInfo{
-					ID:        user.UserId,
-					Username:  user.Username,
-					Role:      int(user.Role),
-					AvatarUrl: user.AvatarUrl,
-				}
-			} else {
-				postDatas[idx].UserInfo = response.UserInfo{
-					Username: "用户已注销",
-				}
-			}
+			postDatas[idx].UserInfo = userInfoMap[post.AuthorID]
 
 			postDatas[idx].PostData.Post = post
 			idx++

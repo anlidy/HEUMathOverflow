@@ -115,6 +115,103 @@
 
 - 存储登录 Session；键：sessionID，值：{userID, role, remember, TTL}。
 
+##### 2.1. forum-service 缓存与计数
+
+forum 当前只保留 Redis 缓存，不再使用进程内 LRU。本层 Redis 主要承担两类职责：
+
+- 读缓存：减少热点帖子详情、热点帖子首页回复列表的数据库读取压力。
+- 计数与异步写回：承接浏览、点赞、收藏、回复数等高频增量，再由后台 worker 定时刷回 PostgreSQL。
+
+##### 2.2. 帖子详情缓存
+
+用途：
+
+- 给热点帖子详情接口提供缓存命中。
+- 避免同一时间大量请求同时穿透到数据库。
+
+主要键：
+
+- `post:{postID}`：帖子详情缓存，值为帖子 JSON。
+- `lock:post:{postID}`：回源加载帖子详情时使用的分布式锁。
+- `post:visit:{postID}`：短时间访问计数，用于判断帖子是否属于热点。
+- `post:hot:{yyyyMMddHH}`：按小时划分的热点 ZSet 桶，用于统计 24 小时内的热门帖子。
+
+工作原理：
+
+1. 访问帖子详情时，先读取 `post:{postID}`。
+2. 若命中，直接返回缓存内容。
+3. 若未命中，先通过进程内 `singleflight` 合并同实例内重复请求。
+4. 随后尝试获取 `lock:post:{postID}` 分布式锁，避免多实例同时回源查询同一帖子。
+5. 拿到锁的请求负责查 PostgreSQL，并在帖子被判定为热点时写入 `post:{postID}`。
+6. 没拿到锁的请求会短暂等待其他请求回填缓存；若在等待窗口内仍未命中，再自行回源查询。
+
+热点判定：
+
+- 每次帖子详情访问都会增加 `post:visit:{postID}` 计数，并写入当前小时的 `post:hot:{yyyyMMddHH}` 桶。
+- `post:visit:{postID}` 使用短 TTL 窗口判断“最近是否足够热”。
+- 热点预热 worker 会定期聚合近 24 小时热点桶，挑出仍然处于热点窗口内的帖子，提前把详情写入 Redis。
+
+##### 2.3. 回复列表与回复详情缓存
+
+用途：
+
+- 缓存热点帖子首页回复列表，减少第一页高频访问时的数据库压力。
+- 缓存回复详情，避免已经拿到回复 ID 后再次逐条查库。
+
+主要键：
+
+- `comments:post:{postID}`：热点帖首页回复列表缓存，值为 `{ids, total}` JSON。
+- `comment:{replyID}`：单条回复详情缓存，值为回复 JSON。
+- `lock:comments:post:{postID}`：回源加载首页回复列表时使用的分布式锁。
+
+工作原理：
+
+1. 当前只对“热点帖子 + 第 1 页 + page_size=20”的回复列表启用缓存。
+2. 读取首页回复时先查 `comments:post:{postID}`，一次拿到回复 ID 列表和总数 `total`。
+3. 命中后，再通过 `MGET comment:{replyID}` 批量读取回复详情。
+4. 若部分回复详情缺失，仅对缺失的 replyID 回源数据库，再回填对应 `comment:{replyID}`。
+5. 列表缓存未命中时，同样先走 `singleflight`，再尝试获取 `lock:comments:post:{postID}` 分布式锁。
+6. 没拿到锁的请求会短暂等待其他请求回填列表缓存，超过等待窗口才自行回源。
+
+一致性策略：
+
+- 回复列表缓存将 `ids` 和 `total` 存在同一个 key 中，避免“列表命中但总数丢失”的不一致问题。
+- 回复新增、更新、删除后会主动失效对应帖子下的列表缓存，以及相关回复详情缓存。
+
+##### 2.4. 计数缓存与异步写回
+
+用途：
+
+- 把浏览、点赞、收藏、回复数等高频小增量先落到 Redis，降低数据库直接写压力。
+- 由后台 worker 周期性批量写回 PostgreSQL，再继续向下游发送所需事件。
+
+主要键：
+
+- `post:{postID}:stat`：帖子统计增量。
+- `post:{postID}:stat:processing`：帖子统计刷库时的处理中 key。
+- `reply:{replyID}:stat`：回复统计增量，目前主要用于回复点赞数。
+- `reply:{replyID}:stat:processing`：回复统计刷库时的处理中 key。
+
+工作原理：
+
+1. 用户点赞、收藏、浏览、回复等操作先写 Redis 统计 key，而不是立即更新 PostgreSQL 冗余计数字段。
+2. worker 扫描统计 key 后，会先把 `:stat` 原子搬运到 `:stat:processing`，冻结这一批增量。
+3. worker 读取冻结快照并写回 PostgreSQL 中的冗余计数字段，例如：
+
+- `posts.views`
+- `posts.likes`
+- `posts.stars`
+- `posts.replies`
+- `replies.likes`
+
+4. 数据库写回成功后删除 `:processing` key，失败则保留，等待后续重试或排查。
+
+这样做的作用：
+
+- 降低高频计数直接写库造成的行竞争。
+- 让接口主链路更轻，优先保证写操作响应速度。
+- 为后续统一事件投递、搜索同步提供更稳定的统计快照来源。
+
 #### 3. MinIO
 
 - 存储用户头像、帖子/回复图片、语音等文件，URL 持久化在 PG。

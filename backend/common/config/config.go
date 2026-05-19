@@ -57,6 +57,20 @@ type GRPCConfig struct {
 	UserServiceAddr string `mapstructure:"user_service_addr"`
 }
 
+type GatewayRateLimitConfig struct {
+	QPS      float64
+	Capacity int
+}
+
+type GatewayConcurrencyConfig struct {
+	MaxInflight int `mapstructure:"max_inflight"`
+}
+
+type GatewayConfig struct {
+	RateLimit   GatewayRateLimitConfig `mapstructure:"rate_limit"`
+	Concurrency GatewayConcurrencyConfig
+}
+
 type Config struct {
 	Server struct {
 		Domain string
@@ -69,6 +83,7 @@ type Config struct {
 	RabbitMQ RabbitMQConfig
 	Elastic  ElasticsearchConfig
 	GRPC     GRPCConfig
+	Gateway  GatewayConfig
 }
 
 // 常量定义

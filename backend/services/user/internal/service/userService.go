@@ -2,7 +2,6 @@ package service
 
 import (
 	userpb "MathOverflow/api/user"
-	"MathOverflow/common/client"
 	"MathOverflow/common/config"
 	"MathOverflow/common/event"
 	common "MathOverflow/common/model"
@@ -13,6 +12,7 @@ import (
 	"MathOverflow/services/user/internal/model/response"
 	"MathOverflow/services/user/internal/repository"
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/jinzhu/copier"
@@ -40,26 +40,33 @@ type userService struct {
 	userRepo    repository.UserRepo
 	sessionRepo repository.SessionRepo
 	fileRepo    repository.FileRepo
-	mq          *client.RabbitMQClient
 	servName    string
 }
 
-func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo repository.SessionRepo, fileRepo repository.FileRepo, mq *client.RabbitMQClient) UserService {
-	return &userService{cfg: cfg, userRepo: userRepo, sessionRepo: sessionRepo, fileRepo: fileRepo, mq: mq, servName: "User-Service"}
+func NewUserService(cfg config.Config, userRepo repository.UserRepo, sessionRepo repository.SessionRepo, fileRepo repository.FileRepo) UserService {
+	return &userService{cfg: cfg, userRepo: userRepo, sessionRepo: sessionRepo, fileRepo: fileRepo, servName: "User-Service"}
 }
 
-func (s *userService) publishUserUpsert(u model.User) {
-	event.PublishUserEvent(s.mq, event.UserUpserted, event.UserPayload{
-		UserID:    u.ID,
-		Username:  u.Username,
-		Role:      int64(u.Role),
-		AvatarURL: u.AvatarUrl,
+func (s *userService) buildUserUpsertEventBody(u model.User) ([]byte, error) {
+	return json.Marshal(event.UserEvent{
+		Type: event.UserUpserted,
+		Payload: event.UserPayload{
+			UserID:    u.ID,
+			Username:  u.Username,
+			Role:      int64(u.Role),
+			AvatarURL: u.AvatarUrl,
+		},
+		CreatedAt: time.Now(),
 	})
 }
 
-func (s *userService) publishUserDeleted(userID int64) {
-	event.PublishUserEvent(s.mq, event.UserDeleted, event.UserPayload{
-		UserID: userID,
+func (s *userService) buildUserDeletedEventBody(userID int64) ([]byte, error) {
+	return json.Marshal(event.UserEvent{
+		Type: event.UserDeleted,
+		Payload: event.UserPayload{
+			UserID: userID,
+		},
+		CreatedAt: time.Now(),
 	})
 }
 
@@ -137,14 +144,20 @@ func (s *userService) UserRegister(ctx context.Context, req request.UserRegister
 		return nil, nil, syserror.NameExistsError
 	}
 	// 将新用户存入数据库
-	err = s.userRepo.CreateUser(&user)
+	err = s.userRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		if err := tx.Model(&model.User{}).Create(&user).Error; err != nil {
+			return err
+		}
+		eventBody, err := s.buildUserUpsertEventBody(user)
+		if err != nil {
+			return err
+		}
+		return s.userRepo.AddOutboxMessageInTx(ctx, tx, string(event.UserUpserted), user.ID, eventBody)
+	})
 	if err != nil {
 		logger.WithError(err).Error("create user failed")
 		return nil, nil, syserror.InternalError
 	}
-
-	// 发布用户 upsert 事件（供其它服务异步冗余用户信息）
-	s.publishUserUpsert(user)
 
 	// 将sessionID -> Session 存入redis
 	var sessionID = utils.GenerateUUID()
@@ -263,14 +276,20 @@ func (s *userService) UserDeleteAccount(ctx context.Context, userID int64, passw
 	}
 
 	// 删除用户
-	_, err = s.userRepo.DeleteUser(userID)
+	err = s.userRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		if err := tx.Where("id = ?", userID).Delete(&model.User{}).Error; err != nil {
+			return err
+		}
+		eventBody, err := s.buildUserDeletedEventBody(userID)
+		if err != nil {
+			return err
+		}
+		return s.userRepo.AddOutboxMessageInTx(ctx, tx, string(event.UserDeleted), userID, eventBody)
+	})
 	if err != nil {
 		logger.WithError(err).Error("delete user failed")
 		return syserror.InternalError
 	}
-
-	// 发布用户删除事件
-	s.publishUserDeleted(userID)
 
 	// 删除当前会话（如果失败，仅记录日志，不影响注销结果）
 	session := model.Session{
@@ -294,7 +313,20 @@ func (s *userService) UserUploadAvatar(ctx context.Context, userID int64, file c
 		return "", syserror.InternalError
 	}
 	// 更新用户信息
-	_, err = s.userRepo.UpdateColumn(userID, "avatar_url", url)
+	err = s.userRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		if err := tx.Model(&model.User{}).Where("id = ?", userID).Update("avatar_url", url).Error; err != nil {
+			return err
+		}
+		var user model.User
+		if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		eventBody, err := s.buildUserUpsertEventBody(user)
+		if err != nil {
+			return err
+		}
+		return s.userRepo.AddOutboxMessageInTx(ctx, tx, string(event.UserUpserted), user.ID, eventBody)
+	})
 	if err != nil {
 		logger.WithError(err).Error("update avatar_url failed")
 		err := s.fileRepo.DeleteFile(ctx, file.Filename) // 删除上传的文件
@@ -302,11 +334,6 @@ func (s *userService) UserUploadAvatar(ctx context.Context, userID int64, file c
 			logger.WithError(err).Error("delete avatar file failed")
 		}
 		return "", syserror.InternalError
-	}
-
-	// 查询最新用户信息并发布 upsert 事件
-	if u, err := s.userRepo.FindUserByID(userID); err == nil {
-		s.publishUserUpsert(u)
 	}
 	return url, syserror.NoError
 }
@@ -348,14 +375,20 @@ func (s *userService) UserUpdateProfie(ctx context.Context, userID int64, req re
 		return syserror.InternalError
 	}
 	// 更新数据库的用户记录
-	_, err = s.userRepo.UpdateUser(&user)
+	err = s.userRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		if err := tx.Model(&model.User{}).Where("id = ?", user.ID).Updates(&user).Error; err != nil {
+			return err
+		}
+		eventBody, err := s.buildUserUpsertEventBody(user)
+		if err != nil {
+			return err
+		}
+		return s.userRepo.AddOutboxMessageInTx(ctx, tx, string(event.UserUpserted), user.ID, eventBody)
+	})
 	if err != nil {
 		logger.WithError(err).Error("update user failed")
 		return syserror.InternalError
 	}
-
-	// 发布用户 upsert 事件（用户名、角色、头像等冗余信息）
-	s.publishUserUpsert(user)
 	return syserror.NoError
 }
 
@@ -410,7 +443,16 @@ func (s *userService) UpdateUserRole(ctx context.Context, opID int64, req reques
 	}
 	target.Role = req.NewRole
 	// 更新数据库
-	_, err := s.userRepo.UpdateUser(&target)
+	err := s.userRepo.RunInTx(ctx, func(tx *gorm.DB) error {
+		if err := tx.Model(&model.User{}).Where("id = ?", target.ID).Updates(&target).Error; err != nil {
+			return err
+		}
+		eventBody, err := s.buildUserUpsertEventBody(target)
+		if err != nil {
+			return err
+		}
+		return s.userRepo.AddOutboxMessageInTx(ctx, tx, string(event.UserUpserted), target.ID, eventBody)
+	})
 	if err != nil {
 		logger.WithError(err).Error("update user role failed")
 		return syserror.InternalError
@@ -421,9 +463,5 @@ func (s *userService) UpdateUserRole(ctx context.Context, opID int64, req reques
 	if err != nil {
 		return syserror.InternalError
 	}
-
-	// 发布用户 upsert 事件（角色变更需要下游同步）
-	s.publishUserUpsert(target)
-
 	return syserror.NoError
 }

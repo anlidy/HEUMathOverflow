@@ -1,7 +1,11 @@
 package repository
 
 import (
+	common "MathOverflow/common/model"
+	"MathOverflow/common/utils"
 	"MathOverflow/services/user/internal/model"
+	"context"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -15,6 +19,8 @@ type UserRepo interface {
 	UpdateColumn(userID int64, column string, value any) (bool, error)
 	UpdateUser(user *model.User) (bool, error)
 	DeleteUser(userID int64) (bool, error)
+	RunInTx(ctx context.Context, fn func(tx *gorm.DB) error) error
+	AddOutboxMessageInTx(ctx context.Context, tx *gorm.DB, topic string, userID int64, payload []byte) error
 }
 
 type userRepo struct {
@@ -86,4 +92,22 @@ func (r *userRepo) DeleteUser(userID int64) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func (r *userRepo) RunInTx(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	return r.pg.WithContext(ctx).Transaction(fn)
+}
+
+func (r *userRepo) AddOutboxMessageInTx(ctx context.Context, tx *gorm.DB, topic string, userID int64, payload []byte) error {
+	message := common.OutboxMessage{
+		ID:           utils.GenerateSnowflakeID(),
+		ResourceType: "user",
+		ResourceID:   userID,
+		Topic:        topic,
+		Target:       "forum-user-events",
+		Payload:      payload,
+		Status:       common.OutboxMessagePending,
+		RetryAt:      time.Now(),
+	}
+	return tx.WithContext(ctx).Create(&message).Error
 }

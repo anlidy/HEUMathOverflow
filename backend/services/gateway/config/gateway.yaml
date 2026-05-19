@@ -1,6 +1,13 @@
 server:
   port: 8080
 
+gateway:
+  rate_limit:
+    qps: 100
+    capacity: 100
+  concurrency:
+    max_inflight: 1000
+
 redis:
   addr: redis:6379
   password: ""

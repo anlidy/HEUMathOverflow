@@ -5,7 +5,6 @@ import (
 	handler "MathOverflow/services/forum/internal/handler"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -19,18 +18,15 @@ func SetupRouter(rdb *redis.Client,
 	r := gin.Default()
 	r.Use(
 		middleware.RequestIDMiddleware(),
-		middleware.MetricsMiddleware("forum-service"),
 		middleware.LoggingMiddleware(),
 	)
-
-	// Prometheus metrics endpoint
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	forum := r.Group("/forum")
 
 	// 论坛
 	forum.GET("/file/*filename", forumHandler.DownloadFile) // 无需鉴权
 	authForum := forum.Group("")
+	authForum.Use(middleware.AuthMiddleware(rdb))
 	authForum.POST("/upload", forumHandler.UploadTempFile) // 临时文件上传
 
 	// 帖子相关
@@ -41,13 +37,13 @@ func SetupRouter(rdb *redis.Client,
 	authPost.GET("/:postID", postHandler.GetPostData)                  // 获取单条帖子
 	authPost.GET("/:postID/replies", replyHandler.BatchGetReply)       // 根据条件获取所有回复
 	authPost.PATCH("/:postID", postHandler.UpdateOnePost)              // 更新帖子
-	authPost.PATCH("/:postID/certified", postHandler.SetPostCertified) // 设置帖子精选
 	authPost.DELETE("/:postID", postHandler.DeleteOnePost)             // 删除帖子
 	authPost.POST("/like/:postID", postHandler.LikeOnePost)            // 点赞帖子
 	authPost.DELETE("/like/:postID", postHandler.CancelLikeOnePost)    // 取消点赞
 	authPost.POST("/star/:postID", postHandler.StarOnePost)            // 收藏帖子
 	authPost.DELETE("/star/:postID", postHandler.CancelStarOnePost)    // 取消收藏
 	authPost.GET("/starred", postHandler.GetUserStarredPosts)          // 查询当前用户的收藏列表
+	authPost.PATCH("/:postID/certified", postHandler.SetPostCertified) // 设置帖子精选
 
 	// 回帖相关
 	authReply := authForum.Group("/replies")

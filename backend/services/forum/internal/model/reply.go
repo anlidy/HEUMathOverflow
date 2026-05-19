@@ -47,3 +47,8 @@ type ReplyDetail struct {
 	Reply
 	Liked bool
 }
+
+type ReplyStat struct {
+	ReplyID int64
+	Likes   int64
+}

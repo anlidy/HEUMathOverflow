@@ -36,7 +36,7 @@ func newReverseProxy(target string) *httputil.ReverseProxy {
 	}
 
 	proxy.Transport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		Proxy:                 nil,
 		ResponseHeaderTimeout: 5 * time.Second,
 	}
 
@@ -69,13 +69,15 @@ func main() {
 	}
 
 	// 创建两个下游服务代理
-	userProxy := newReverseProxy("http://localhost:8081")
-	forumProxy := newReverseProxy("http://localhost:8082")
+	userProxy := newReverseProxy("http://user-service:8081")
+	forumProxy := newReverseProxy("http://forum-service:8082")
 
 	cors := middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"})
 
 	r := gin.Default()
 	r.Use(cors)
+	r.Use(middleware.GlobalConcurrencyMiddleware(cfg.Gateway.Concurrency.MaxInflight))
+	r.Use(middleware.RedisIPRateLimitMiddleware(rdb, "/", cfg.Gateway.RateLimit.QPS, cfg.Gateway.RateLimit.Capacity))
 	r = SetupUserRouter(rdb, r, userProxy)
 	r = SetupForumRouter(rdb, r, forumProxy)
 

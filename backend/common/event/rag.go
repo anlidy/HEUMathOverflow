@@ -1,11 +1,6 @@
 package event
 
-import (
-	"MathOverflow/common/client"
-	"MathOverflow/common/utils"
-	"fmt"
-	"time"
-)
+import "time"
 
 type RagEventType string
 
@@ -34,28 +29,4 @@ type RagDataEvent struct {
 	Type      RagEventType   `json:"type"`
 	Payload   RagDataPayload `json:"payload"`
 	CreatedAt time.Time      `json:"created_at"`
-}
-
-func PublishRagEvent(mq *client.RabbitMQClient, t RagEventType, payload RagDataPayload) {
-	if mq == nil {
-		utils.Logger().Warn("mq is nil, cannot publish post event")
-		return
-	}
-
-	evt := RagDataEvent{
-		Type:      t,
-		Payload:   payload,
-		CreatedAt: time.Now(),
-	}
-
-	// 计算分片
-	if mq.RagWorkerCount <= 0 {
-		utils.Logger().Warn("rag_worker_count must >= 0")
-	}
-	shardID := payload.PostID % mq.RagWorkerCount
-	routeKey := fmt.Sprintf("%s.%d", t, shardID) // rag.data.created.1
-
-	if err := mq.PublishEvent(routeKey, evt); err != nil {
-		utils.Logger().WithError(err).Error("publish rag event failed")
-	}
 }

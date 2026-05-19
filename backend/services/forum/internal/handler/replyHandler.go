@@ -239,7 +239,7 @@ func (pc *ReplyHandler) ChangeReplyStatus(c *gin.Context) {
 		api.JSON(c).Code(http.StatusBadRequest).Message("状态修改失败,数据格式有误").Send()
 		return
 	}
-	if req.Status < int(requestedReplyStatusMin()) || req.Status > int(requestedReplyStatusMax()) {
+	if req.Status < int(model.NotSelected) || req.Status > int(model.TeacherCertified) {
 		api.JSON(c).Code(http.StatusBadRequest).Message("状态值无效").Send()
 		return
 	}
@@ -262,12 +262,4 @@ func (pc *ReplyHandler) ChangeReplyStatus(c *gin.Context) {
 		return
 	}
 	api.JSON(c).Code(http.StatusOK).Message("回帖状态修改成功").Send()
-}
-
-func requestedReplyStatusMin() model.ReplyStatus {
-	return model.NotSelected
-}
-
-func requestedReplyStatusMax() model.ReplyStatus {
-	return model.TeacherCertified
 }

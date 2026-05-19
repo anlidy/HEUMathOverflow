@@ -19,6 +19,8 @@ type ReplyRepo interface {
 	FindReplyDetailByID(replyID, userID int64) (model.ReplyDetail, error)
 	FindReplyDetailsByPostID(postID, userID int64, offset, limit int) ([]model.ReplyDetail, int64, error)
 	FindRepliesPageByPostID(postID int64, offset, limit int) ([]model.Reply, int64, error)
+	FindRepliesByPostID(postID int64) ([]model.Reply, error)
+	FindTopRepliesByLikes(postID int64, limit int) ([]model.Reply, error)
 	FindRepliesByIDs(replyIDs []int64) ([]model.Reply, error)
 	FindReplyLikeMap(userID int64, replyIDs []int64) (map[int64]bool, error)
 	UpdateColumn(replyID int64, column string, value any) (bool, error)
@@ -27,6 +29,10 @@ type ReplyRepo interface {
 	CreateReplyLike(rl *model.ReplyLike) (bool, error)
 	DeleteReplyLike(userID, replyID int64) (bool, error)
 	// redis
+	IncreaseReplyStat(ctx context.Context, replyID int64, attr string) error
+	DecreaseReplyStat(ctx context.Context, replyID int64, attr string) error
+	MoveReplyStatToProcessing(ctx context.Context, key string) (string, bool, error)
+	DeleteReplyStatKey(ctx context.Context, key string) error
 	IncreasePostReplies(ctx context.Context, postID int64) error
 	DecreasePostReplies(ctx context.Context, postID int64) error
 	ChangeReplyAndPostStatus(ctx context.Context, replyID, postID int64, expectedReplyStatus int, replyStatus int, certifiedBy *int64, postStatus *int) error
@@ -116,6 +122,28 @@ func (r *replyRepo) FindRepliesPageByPostID(postID int64, offset, limit int) ([]
 	return results, total, err
 }
 
+func (r *replyRepo) FindRepliesByPostID(postID int64) ([]model.Reply, error) {
+	var results []model.Reply
+	err := r.pg.Model(&model.Reply{}).
+		Where("post_id = ?", postID).
+		Order("created_at ASC").
+		Find(&results).Error
+	return results, err
+}
+
+func (r *replyRepo) FindTopRepliesByLikes(postID int64, limit int) ([]model.Reply, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	var results []model.Reply
+	err := r.pg.Model(&model.Reply{}).
+		Where("post_id = ?", postID).
+		Order("likes DESC, created_at ASC").
+		Limit(limit).
+		Find(&results).Error
+	return results, err
+}
+
 func (r *replyRepo) FindRepliesByIDs(replyIDs []int64) ([]model.Reply, error) {
 	if len(replyIDs) == 0 {
 		return nil, nil
@@ -202,6 +230,55 @@ func (r *replyRepo) CreateReplyLike(rl *model.ReplyLike) (bool, error) {
 func (r *replyRepo) DeleteReplyLike(userID, replyID int64) (bool, error) {
 	result := r.pg.Where("user_id = ? AND reply_id = ?", userID, replyID).Delete(&model.ReplyLike{})
 	return result.RowsAffected > 0, result.Error
+}
+
+func (r *replyRepo) IncreaseReplyStat(ctx context.Context, replyID int64, attr string) error {
+	key := fmt.Sprintf("reply:%d:stat", replyID)
+	_, err := r.rdb.HIncrBy(ctx, key, attr, 1).Result()
+	if err != nil {
+		return fmt.Errorf("increase reply %s failed: %w", attr, err)
+	}
+	return nil
+}
+
+func (r *replyRepo) DecreaseReplyStat(ctx context.Context, replyID int64, attr string) error {
+	key := fmt.Sprintf("reply:%d:stat", replyID)
+	_, err := r.rdb.HIncrBy(ctx, key, attr, -1).Result()
+	if err != nil {
+		return fmt.Errorf("decrease reply %s failed: %w", attr, err)
+	}
+	return nil
+}
+
+func (r *replyRepo) MoveReplyStatToProcessing(ctx context.Context, key string) (string, bool, error) {
+	processingKey := fmt.Sprintf("%s:processing", key)
+	moved, err := r.rdb.Eval(ctx, `
+local src = KEYS[1]
+local dst = KEYS[2]
+if redis.call("EXISTS", src) == 0 then
+    return 0
+end
+if redis.call("EXISTS", dst) == 1 then
+    return -1
+end
+redis.call("RENAME", src, dst)
+return 1
+`, []string{key, processingKey}).Int()
+	if err != nil {
+		return "", false, err
+	}
+	switch moved {
+	case 1:
+		return processingKey, true, nil
+	case 0:
+		return processingKey, false, nil
+	default:
+		return processingKey, false, nil
+	}
+}
+
+func (r *replyRepo) DeleteReplyStatKey(ctx context.Context, key string) error {
+	return r.rdb.Del(ctx, key).Err()
 }
 
 // redis增加 post replies 次数

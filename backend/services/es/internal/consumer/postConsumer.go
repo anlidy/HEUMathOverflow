@@ -39,29 +39,6 @@ func StartPostConsumer(ctx context.Context, mq *client.RabbitMQClient, es *clien
 	return nil
 }
 
-// 获取帖子状态
-func getCurrentPostStat(es *client.ESClient, index, docID string) (*common.PostStat, error) {
-	res, err := es.Client.Get(index, docID)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.IsError() {
-		return nil, fmt.Errorf("get doc failed: %s", res.String())
-	}
-
-	var doc struct {
-		Source common.PostStat `json:"_source"`
-	}
-
-	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
-		return nil, err
-	}
-
-	return &doc.Source, nil
-}
-
 // 处理Post类型的事件
 func HandlePostEvent(ch *amqp.Channel, es *client.ESClient, msg amqp.Delivery) error {
 	// 解析post事件结构
@@ -180,24 +157,28 @@ func handleDeletePost(es *client.ESClient, docID string) error {
 
 // 帖子状态更新
 func handlePostStatUpdated(es *client.ESClient, docID string, payload event.ForumPostPayload) error {
-	// 查询当前状态
-	stat, err := getCurrentPostStat(es, es.Index, docID)
-	if err != nil {
-		return err
-	}
-	// 更新状态
-	stat.Likes += payload.Likes
-	stat.Replies += payload.Replies
-	stat.Stars += payload.Stars
-	stat.Views += payload.Views
-
-	// 计算评分
-	favors, totalScore := utils.CalcPostScores(stat)
-	stat.Favors = favors
-	stat.TotalScore = totalScore
+	favors, totalScore := utils.CalcPostScores(&common.PostStat{
+		Views:     payload.Views,
+		Likes:     payload.Likes,
+		Stars:     payload.Stars,
+		Replies:   payload.Replies,
+		Status:    payload.Status,
+		CreatedAt: payload.CreatedAt,
+	})
+	payload.Favors = favors
+	payload.TotalScore = totalScore
 
 	updateBody := map[string]any{
-		"doc": stat, // 用 doc 包裹，ES 才能识别
+		"doc": map[string]any{
+			"views":       payload.Views,
+			"likes":       payload.Likes,
+			"stars":       payload.Stars,
+			"replies":     payload.Replies,
+			"status":      payload.Status,
+			"created_at":  payload.CreatedAt,
+			"favors":      payload.Favors,
+			"total_score": payload.TotalScore,
+		},
 	}
 
 	// 序列化 ES 文档

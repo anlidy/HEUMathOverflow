@@ -5,33 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
-
-const traceIDKey = "trace_id"
-
-// RequestIDMiddleware ensures every request has a trace ID.
-// It reads X-Request-Id from the incoming header or generates a new one,
-// then propagates it via Gin context, HTTP headers, and request context.
-func RequestIDMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		traceID := c.Request.Header.Get("X-Request-Id")
-		if traceID == "" {
-			traceID = uuid.New().String()
-		}
-
-		// Expose traceID to downstream handlers and clients.
-		c.Set(traceIDKey, traceID)
-		c.Writer.Header().Set("X-Request-Id", traceID)
-
-		// Propagate traceID into the request context for non-HTTP layers.
-		ctxWithTrace := utils.ContextWithTraceID(c.Request.Context(), traceID)
-		c.Request = c.Request.WithContext(ctxWithTrace)
-
-		c.Next()
-	}
-}
 
 // LoggingMiddleware writes a structured access log per HTTP request using logrus.
 func LoggingMiddleware() gin.HandlerFunc {
@@ -47,7 +22,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		latency := time.Since(start)
 		statusCode := c.Writer.Status()
 
-		traceID, _ := c.Get(traceIDKey)
+		traceID, _ := c.Get(ginTraceIDKey)
 
 		entry := utils.Logger().WithFields(logrus.Fields{
 			"service":    utils.ServiceName(),

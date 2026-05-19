@@ -2,15 +2,15 @@ package utils
 
 import "context"
 
-// traceIDKey is an unexported type for keys defined in this package.
+// contextTraceIDKey is an unexported type for keys defined in this package.
 // This prevents collisions with context keys defined in other packages.
-type traceIDKey struct{}
+type contextTraceIDKey struct{}
 
-var traceKey = traceIDKey{}
+var traceContextKey = contextTraceIDKey{}
 
 // ContextWithTraceID returns a new context with the given traceID attached.
 func ContextWithTraceID(ctx context.Context, traceID string) context.Context {
-	return context.WithValue(ctx, traceKey, traceID)
+	return context.WithValue(ctx, traceContextKey, traceID)
 }
 
 // TraceIDFromContext extracts the traceID from the given context if present.
@@ -18,7 +18,7 @@ func TraceIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	val := ctx.Value(traceKey)
+	val := ctx.Value(traceContextKey)
 	if val == nil {
 		return ""
 	}

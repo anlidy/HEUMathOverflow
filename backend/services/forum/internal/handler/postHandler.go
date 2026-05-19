@@ -138,34 +138,6 @@ func (pc *PostHandler) UpdateOnePost(c *gin.Context) {
 	api.JSON(c).Code(http.StatusOK).Message("帖子更新成功").Send()
 }
 
-func (pc *PostHandler) SetPostCertified(c *gin.Context) {
-	postID, err := strconv.ParseInt(c.Param("postID"), 10, 64)
-	if err != nil {
-		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
-		return
-	}
-	var req request.PostCertifiedUpdate
-	if err := c.ShouldBindJSON(&req); err != nil {
-		api.JSON(c).Code(http.StatusBadRequest).Message("精选设置失败,数据格式有误").Send()
-		return
-	}
-	ctx := c.Request.Context()
-	role := c.GetInt("role")
-	syserr := pc.postServ.SetPostCertified(ctx, postID, req, role)
-	switch syserr {
-	case syserror.PermissionDeniedError:
-		api.JSON(c).Code(http.StatusUnauthorized).Message("只有教师可以设置精选贴").Send()
-		return
-	case syserror.NotFoundError:
-		api.JSON(c).Code(http.StatusNotFound).Message("找不到要设置的帖子").Send()
-		return
-	case syserror.InternalError:
-		api.JSON(c).Code(http.StatusInternalServerError).Message("精选设置失败").Send()
-		return
-	}
-	api.JSON(c).Code(http.StatusOK).Message("帖子精选状态修改成功").Send()
-}
-
 // 删除帖子及所有回帖
 func (pc *PostHandler) DeleteOnePost(c *gin.Context) {
 	var postIDStr = c.Param("postID")
@@ -311,4 +283,32 @@ func (pc *PostHandler) GetUserStarredPosts(c *gin.Context) {
 		return
 	}
 	api.JSON(c).Code(http.StatusOK).Message("查询成功").Data(posts).Pagination(page, limit, int(total)).Send()
+}
+
+func (pc *PostHandler) SetPostCertified(c *gin.Context) {
+	postID, err := strconv.ParseInt(c.Param("postID"), 10, 64)
+	if err != nil {
+		api.JSON(c).Code(http.StatusBadRequest).Message("无效的帖子id").Send()
+		return
+	}
+	var req request.PostCertifiedUpdate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.JSON(c).Code(http.StatusBadRequest).Message("精选设置失败,数据格式有误").Send()
+		return
+	}
+	ctx := c.Request.Context()
+	role := c.GetInt("role")
+	syserr := pc.postServ.SetPostCertified(ctx, postID, req, role)
+	switch syserr {
+	case syserror.PermissionDeniedError:
+		api.JSON(c).Code(http.StatusUnauthorized).Message("只有教师可以设置精选贴").Send()
+		return
+	case syserror.NotFoundError:
+		api.JSON(c).Code(http.StatusNotFound).Message("找不到要设置的帖子").Send()
+		return
+	case syserror.InternalError:
+		api.JSON(c).Code(http.StatusInternalServerError).Message("精选设置失败").Send()
+		return
+	}
+	api.JSON(c).Code(http.StatusOK).Message("帖子精选状态修改成功").Send()
 }

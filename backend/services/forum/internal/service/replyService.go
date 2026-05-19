@@ -13,7 +13,6 @@ import (
 	"MathOverflow/services/forum/internal/model/response"
 	"MathOverflow/services/forum/internal/repository"
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +47,9 @@ type replyService struct {
 	servName       string
 	userClient     userpb.UserServiceClient
 	userClientOnce sync.Once
+	userResolver   *userResolver
+	statWriter     *statWriter
+	fileCleanup    *fileCleanup
 }
 
 func (s *replyService) getUserClient() (userpb.UserServiceClient, error) {
@@ -73,7 +75,7 @@ func (s *replyService) getUserClient() (userpb.UserServiceClient, error) {
 }
 
 func NewReplyService(cfg config.Config, postRepo repository.PostRepo, replyRepo repository.ReplyRepo, fileRepo repository.FileRepo, userSnapshot repository.UserSnapshotRepo, tokenRepo repository.ClientTokenRepo, commentCache *cache.CommentCache, postCache *cache.PostCache, hotness cache.Hotness) ReplyService {
-	return &replyService{
+	svc := &replyService{
 		cfg:          cfg,
 		postRepo:     postRepo,
 		replyRepo:    replyRepo,
@@ -84,28 +86,11 @@ func NewReplyService(cfg config.Config, postRepo repository.PostRepo, replyRepo 
 		postCache:    postCache,
 		hotness:      hotness,
 		servName:     "Reply-Service",
+		statWriter:   newStatWriter("Reply-Service"),
+		fileCleanup:  newFileCleanup("Reply-Service", fileRepo),
 	}
-}
-
-func (s *replyService) snapshotToUserInfo(snap model.UserSnapshot) response.UserInfo {
-	return response.UserInfo{
-		ID:        snap.UserID,
-		Username:  snap.Username,
-		Role:      snap.Role,
-		AvatarUrl: snap.AvatarURL,
-	}
-}
-
-func (s *replyService) getUserInfoFromSnapshot(userID int64) (*response.UserInfo, bool) {
-	if s.userSnapshot == nil {
-		return nil, false
-	}
-	snap, err := s.userSnapshot.FindByID(userID)
-	if err != nil {
-		return nil, false
-	}
-	ui := s.snapshotToUserInfo(snap)
-	return &ui, true
+	svc.userResolver = newUserResolver(userSnapshot, svc.getUserClient)
+	return svc
 }
 
 // 创建新回贴
@@ -214,14 +199,9 @@ func (s *replyService) CreateNewReply(ctx context.Context, userID int64, req req
 		s.commentCache.InvalidatePost(ctx, req.PostID)
 	}
 
-	// 后台同步
-	go func() {
-		// redis的replies+1
-		var ctx = context.Background()
-		if err := s.replyRepo.IncreasePostReplies(ctx, req.PostID); err != nil {
-			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("increase post replies failed")
-		}
-	}()
+	s.statWriter.Submit("increase post replies", func(ctx context.Context) error {
+		return s.replyRepo.IncreasePostReplies(ctx, req.PostID)
+	})
 	return replyID, syserror.NoError
 }
 
@@ -238,52 +218,14 @@ func (s *replyService) GetOneReply(ctx context.Context, replyID, userID int64) (
 		return nil, nil, syserror.InternalError
 	}
 
-	// 优先从快照读取用户信息
-	userInfo, ok := s.getUserInfoFromSnapshot(reply.ReplierID)
-	if !ok {
-		// 回退 gRPC 并回写快照
-		var userDeleted = false
-		userClient, err := s.getUserClient()
-		if err == nil {
-			resp, err := userClient.GetUserInfo(ctx, &userpb.GetUserRequest{UserId: reply.ReplierID})
-			if err != nil {
-				st, ok := status.FromError(err)
-				if ok && st.Code() == codes.NotFound {
-					userDeleted = true
-				} else {
-					logger.WithError(err).Warn("get user info via grpc failed, fallback to deleted user")
-				}
-			} else {
-				userInfo = &response.UserInfo{
-					ID:        resp.UserId,
-					Username:  resp.Username,
-					Role:      int(resp.Role),
-					AvatarUrl: resp.AvatarUrl,
-				}
-				if s.userSnapshot != nil {
-					_ = s.userSnapshot.Upsert(model.UserSnapshot{
-						UserID:    resp.UserId,
-						Username:  resp.Username,
-						Role:      int(resp.Role),
-						AvatarURL: resp.AvatarUrl,
-					})
-				}
-			}
-		}
-		if userInfo == nil {
-			userInfo = &response.UserInfo{Username: "用户已注销"}
-		}
-		if userDeleted {
-			userInfo = &response.UserInfo{Username: "用户已注销"}
-		}
-	}
+	userInfo := s.userResolver.ResolveOne(ctx, reply.ReplierID, logger)
 	// 聚合返回查询结果
 	replyData := &response.ReplyData{
 		Reply: reply.Reply,
 		Liked: reply.Liked,
 	}
 
-	return userInfo, replyData, syserror.NoError
+	return &userInfo, replyData, syserror.NoError
 }
 
 // 获取分页帖子
@@ -349,14 +291,6 @@ func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64,
 					}
 				}
 
-				if total == 0 && len(ordered) > 0 {
-					_, t, e := s.replyRepo.FindRepliesPageByPostID(postID, 0, 1)
-					if e == nil {
-						total = t
-						_ = s.commentCache.SetTotal(ctx, postID, total, listTTL)
-					}
-				}
-
 				likeMap := map[int64]bool{}
 				if m, e := s.replyRepo.FindReplyLikeMap(userID, ids); e == nil {
 					likeMap = m
@@ -368,69 +302,11 @@ func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64,
 				for i, r := range ordered {
 					userIDs[i] = r.ReplierID
 				}
-				dedup := make(map[int64]struct{}, len(userIDs))
-				uniqIDs := make([]int64, 0, len(userIDs))
-				for _, uid := range userIDs {
-					if _, ok := dedup[uid]; ok {
-						continue
-					}
-					dedup[uid] = struct{}{}
-					uniqIDs = append(uniqIDs, uid)
-				}
-
-				snapMap := map[int64]model.UserSnapshot{}
-				if s.userSnapshot != nil {
-					if m, err := s.userSnapshot.FindMapByIDs(uniqIDs); err == nil {
-						snapMap = m
-					} else {
-						logger.WithError(err).Warn("load user snapshots failed")
-					}
-				}
-
-				grpcMap := map[int64]*userpb.GetUserResponse{}
-				missingUsers := make([]int64, 0)
-				for _, uid := range uniqIDs {
-					if _, ok := snapMap[uid]; ok {
-						continue
-					}
-					missingUsers = append(missingUsers, uid)
-				}
-				if len(missingUsers) > 0 {
-					userClient, err := s.getUserClient()
-					if err == nil {
-						resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: missingUsers})
-						if err != nil {
-							logger.WithError(err).Warn("batch get user info via grpc failed")
-						} else {
-							grpcMap = resp.Users
-							if s.userSnapshot != nil {
-								for _, u := range grpcMap {
-									_ = s.userSnapshot.Upsert(model.UserSnapshot{
-										UserID:    u.UserId,
-										Username:  u.Username,
-										Role:      int(u.Role),
-										AvatarURL: u.AvatarUrl,
-									})
-								}
-							}
-						}
-					}
-				}
+				userInfoMap := s.userResolver.ResolveMany(ctx, userIDs, logger)
 
 				replyDatas := make([]response.MultiReplyData, len(ordered))
 				for i := range ordered {
-					if snap, ok := snapMap[ordered[i].ReplierID]; ok {
-						replyDatas[i].UserInfo = s.snapshotToUserInfo(snap)
-					} else if u, ok := grpcMap[ordered[i].ReplierID]; ok {
-						replyDatas[i].UserInfo = response.UserInfo{
-							ID:        u.UserId,
-							Username:  u.Username,
-							Role:      int(u.Role),
-							AvatarUrl: u.AvatarUrl,
-						}
-					} else {
-						replyDatas[i].UserInfo = response.UserInfo{Username: "用户已注销"}
-					}
+					replyDatas[i].UserInfo = userInfoMap[ordered[i].ReplierID]
 					replyDatas[i].ReplyData.Reply = ordered[i]
 					replyDatas[i].ReplyData.Liked = likeMap[ordered[i].ID]
 				}
@@ -455,72 +331,11 @@ func (s *replyService) GetManyReplies(ctx context.Context, postID, userID int64,
 	for i, reply := range replies {
 		userIDs[i] = reply.ReplierID
 	}
-	// 快照优先，缺失回退 gRPC
-	dedup := make(map[int64]struct{}, len(userIDs))
-	uniqIDs := make([]int64, 0, len(userIDs))
-	for _, uid := range userIDs {
-		if _, ok := dedup[uid]; ok {
-			continue
-		}
-		dedup[uid] = struct{}{}
-		uniqIDs = append(uniqIDs, uid)
-	}
-
-	snapMap := map[int64]model.UserSnapshot{}
-	if s.userSnapshot != nil {
-		if m, err := s.userSnapshot.FindMapByIDs(uniqIDs); err == nil {
-			snapMap = m
-		} else {
-			logger.WithError(err).Warn("load user snapshots failed")
-		}
-	}
-
-	grpcMap := map[int64]*userpb.GetUserResponse{}
-	missing := make([]int64, 0)
-	for _, uid := range uniqIDs {
-		if _, ok := snapMap[uid]; ok {
-			continue
-		}
-		missing = append(missing, uid)
-	}
-	if len(missing) > 0 {
-		userClient, err := s.getUserClient()
-		if err == nil {
-			resp, err := userClient.BatchGetUserInfo(ctx, &userpb.BatchGetUserRequest{UserIds: missing})
-			if err != nil {
-				logger.WithError(err).Warn("batch get user info via grpc failed")
-			} else {
-				grpcMap = resp.Users
-				if s.userSnapshot != nil {
-					for _, u := range grpcMap {
-						_ = s.userSnapshot.Upsert(model.UserSnapshot{
-							UserID:    u.UserId,
-							Username:  u.Username,
-							Role:      int(u.Role),
-							AvatarURL: u.AvatarUrl,
-						})
-					}
-				}
-			}
-		}
-	}
+	userInfoMap := s.userResolver.ResolveMany(ctx, userIDs, logger)
 	// 聚合返回查询结果
 	replyDatas := make([]response.MultiReplyData, len(replies))
 	for i := range replies {
-		if snap, ok := snapMap[replies[i].ReplierID]; ok {
-			replyDatas[i].UserInfo = s.snapshotToUserInfo(snap)
-		} else if u, ok := grpcMap[replies[i].ReplierID]; ok {
-			replyDatas[i].UserInfo = response.UserInfo{
-				ID:        u.UserId,
-				Username:  u.Username,
-				Role:      int(u.Role),
-				AvatarUrl: u.AvatarUrl,
-			}
-		} else {
-			replyDatas[i].UserInfo = response.UserInfo{
-				Username: "用户已注销",
-			}
-		}
+		replyDatas[i].UserInfo = userInfoMap[replies[i].ReplierID]
 		replyDatas[i].ReplyData.Reply = replies[i].Reply
 		replyDatas[i].ReplyData.Liked = replies[i].Liked
 	}
@@ -592,21 +407,7 @@ func (s *replyService) UpdateOneReply(ctx context.Context, userID int64, replyID
 		s.commentCache.InvalidatePost(ctx, reply.PostID)
 	}
 
-	// 后台删除图片
-	go func() {
-		var ctx = context.Background()
-		for _, delUrl := range append(req.DeleteImageURLs, oldVoiceURL) {
-			filename := strings.TrimPrefix(delUrl, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			if err := s.fileRepo.DeleteFile(ctx, filename); err != nil {
-				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting reply file")
-					continue
-				}
-				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete reply file failed")
-				return
-			}
-		}
-	}()
+	s.fileCleanup.SubmitObjectURLs("delete reply files", s.cfg.Minio.Bucket, append(req.DeleteImageURLs, oldVoiceURL))
 	return syserror.NoError
 }
 
@@ -669,30 +470,10 @@ func (s *replyService) DeleteOneReply(ctx context.Context, replyID, userID int64
 		s.commentCache.InvalidatePost(ctx, reply.PostID)
 	}
 
-	// 后台删除回帖包含的文件
-	go func() {
-		var ctx = context.Background()
-		urls := append(reply.ImageURLs, reply.VoiceURL)
-		for _, url := range urls {
-			filename := strings.TrimPrefix(url, fmt.Sprintf("/api/v1/%s/file/", s.cfg.Minio.Bucket))
-			if err := s.fileRepo.DeleteFile(ctx, url); err != nil {
-				if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-					utils.WithContext(ctx).WithField("service", s.servName).WithField("filename", filename).Info("minio file not found when deleting reply file")
-					continue
-				}
-				utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("delete reply file failed")
-				return
-			}
-		}
-	}()
-	// 后台同步
-	go func() {
-		// redis的replies-1
-		var ctx = context.Background()
-		if err := s.replyRepo.DecreasePostReplies(ctx, reply.PostID); err != nil {
-			utils.WithContext(ctx).WithField("service", s.servName).WithError(err).Error("decrease post replies failed")
-		}
-	}()
+	s.fileCleanup.SubmitObjectURLs("delete reply attachments", s.cfg.Minio.Bucket, append(reply.ImageURLs, reply.VoiceURL))
+	s.statWriter.Submit("decrease post replies", func(ctx context.Context) error {
+		return s.replyRepo.DecreasePostReplies(ctx, reply.PostID)
+	})
 	return syserror.NoError
 }
 
@@ -715,6 +496,9 @@ func (s *replyService) LikeOneReply(ctx context.Context, replyID, userID int64) 
 		// already liked -> idempotent success
 		return syserror.NoError
 	}
+	s.statWriter.Submit("increase reply likes", func(ctx context.Context) error {
+		return s.replyRepo.IncreaseReplyStat(ctx, replyID, "likes")
+	})
 	return syserror.NoError
 }
 
@@ -730,6 +514,9 @@ func (s *replyService) CancelLikeOneReply(ctx context.Context, replyID, userID i
 		// already unliked -> idempotent success
 		return syserror.NoError
 	}
+	s.statWriter.Submit("decrease reply likes", func(ctx context.Context) error {
+		return s.replyRepo.DecreaseReplyStat(ctx, replyID, "likes")
+	})
 	return syserror.NoError
 }
 

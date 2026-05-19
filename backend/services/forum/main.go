@@ -3,6 +3,8 @@ package main
 import (
 	"MathOverflow/common/client"
 	"MathOverflow/common/config"
+	common "MathOverflow/common/model"
+	"MathOverflow/common/outbox"
 	"MathOverflow/common/utils"
 	"MathOverflow/services/forum/internal/cache"
 	"MathOverflow/services/forum/internal/consumer"
@@ -53,6 +55,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if err := migrateForumLegacyData(pg); err != nil {
+		panic(err)
+	}
 	// 迁移表
 	if err := pg.AutoMigrate(&model.Post{}, &model.PostLike{}, &model.PostStar{}); err != nil {
 		panic(err)
@@ -60,7 +65,7 @@ func main() {
 	if err := pg.AutoMigrate(&model.Reply{}, &model.ReplyLike{}); err != nil {
 		panic(err)
 	}
-	if err := pg.AutoMigrate(&model.UserSnapshot{}); err != nil {
+	if err := pg.AutoMigrate(&model.UserSnapshot{}, &common.OutboxMessage{}); err != nil {
 		panic(err)
 	}
 	// 添加triggers
@@ -87,7 +92,7 @@ func main() {
 	commentCache := cache.NewCommentCache(rdb, cache.CommentCacheConfig{})
 
 	forumServ := service.NewForumService(cfg, fileRepo)
-	postServ := service.NewPostService(cfg, rabbit, postRepo, fileRepo, userSnapshotRepo, tokenRepo, postCache)
+	postServ := service.NewPostService(cfg, rabbit, postRepo, replyRepo, fileRepo, userSnapshotRepo, tokenRepo, postCache)
 	replyServ := service.NewReplyService(cfg, postRepo, replyRepo, fileRepo, userSnapshotRepo, tokenRepo, commentCache, postCache, postCache)
 	searchServ := service.NewSearchService(cfg, es, postRepo, userSnapshotRepo)
 
@@ -99,7 +104,22 @@ func main() {
 
 	// 初始化worker
 	postWorker := worker.NewPostWorker(pg, rdb, rabbit)
+	replyWorker := worker.NewReplyWorker(pg, rdb, rabbit)
 	hotWarmWorker := worker.NewHotPostWarmWorker(rdb, postRepo, postCache)
+	outboxMessageWorker := outbox.NewMessageWorker(pg, rabbit, "forum-post-events", "Forum-Outbox-Worker", func(message common.OutboxMessage, mq *client.RabbitMQClient) string {
+		workerCount := mq.PostWorkerCount
+		if workerCount <= 0 {
+			workerCount = 1
+		}
+		return fmt.Sprintf("%s.%d", message.Topic, message.ResourceID%workerCount)
+	})
+	ragOutboxMessageWorker := outbox.NewMessageWorker(pg, rabbit, "rag-events", "Rag-Outbox-Worker", func(message common.OutboxMessage, mq *client.RabbitMQClient) string {
+		workerCount := mq.RagWorkerCount
+		if workerCount <= 0 {
+			workerCount = 1
+		}
+		return fmt.Sprintf("%s.%d", message.Topic, message.ResourceID%workerCount)
+	})
 
 	// 并发启动
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -114,9 +134,26 @@ func main() {
 		return nil
 	})
 	eg.Go(func() error {
+		interval := 5 * time.Second
+		var count int64 = 500
+		go replyWorker.WriteBackReplyWorker(ctx, interval, count)
+		return nil
+	})
+	eg.Go(func() error {
 		interval := 30 * time.Second
 		var topN int64 = 100
 		go hotWarmWorker.Run(ctx, interval, topN)
+		return nil
+	})
+	// 定时转发 outbox_messages 中待发送的帖子事件
+	eg.Go(func() error {
+		interval := 3 * time.Second
+		go outboxMessageWorker.Run(ctx, interval, 100)
+		return nil
+	})
+	eg.Go(func() error {
+		interval := 3 * time.Second
+		go ragOutboxMessageWorker.Run(ctx, interval, 100)
 		return nil
 	})
 
@@ -192,4 +229,21 @@ func InitTriggers(db *gorm.DB) {
 	if err := db.Exec(sql).Error; err != nil {
 		panic(err)
 	}
+}
+
+func migrateForumLegacyData(db *gorm.DB) error {
+	statements := []string{
+		`ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_certified boolean`,
+		`UPDATE posts SET is_certified = false WHERE is_certified IS NULL`,
+		`ALTER TABLE posts ALTER COLUMN is_certified SET DEFAULT false`,
+		`ALTER TABLE posts ALTER COLUMN is_certified SET NOT NULL`,
+	}
+
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

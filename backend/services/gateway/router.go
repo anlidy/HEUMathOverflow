@@ -3,6 +3,7 @@ package main
 import (
 	"MathOverflow/common/middleware"
 	"net/http/httputil"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -13,19 +14,17 @@ func SetupUserRouter(rdb *redis.Client, r *gin.Engine, userProxy *httputil.Rever
 	api := r.Group("/api/v1/user")
 
 	// 无需验证的路由
-	api.POST("/login", proxyTo(userProxy, "/user/login"))
-	api.POST("/register", proxyTo(userProxy, "/user/register"))
-	api.GET("/avatar/*filepath", func(c *gin.Context) {
-		filepath := c.Param("filepath")
-		c.Request.URL.Path = "/user/avatar" + filepath
-		userProxy.ServeHTTP(c.Writer, c.Request)
-	})
+	api.POST("/login", proxyTo(userProxy, "", "/user/login"))
+	api.POST("/register", proxyTo(userProxy, "", "/user/register"))
+	api.GET("/avatar/*filepath", proxyTo(userProxy, "/api/v1/user", "/user"))
 
-	// 需要验证的路由
-	api.Use(middleware.AuthMiddleware(rdb))
-	api.Any("/*path", func(c *gin.Context) {
-		userProxy.ServeHTTP(c.Writer, c.Request)
-	})
+	auth := r.Group("/api/v1/user")
+	auth.Use(middleware.AuthMiddleware(rdb))
+	auth.POST("/avatar", proxyTo(userProxy, "", "/user/avatar"))
+	auth.PATCH("/profile", proxyTo(userProxy, "", "/user/profile"))
+	auth.PATCH("/password", proxyTo(userProxy, "", "/user/password"))
+	auth.POST("/logout", proxyTo(userProxy, "", "/user/logout"))
+	auth.DELETE("/account", proxyTo(userProxy, "", "/user/account"))
 
 	return r
 }
@@ -35,25 +34,28 @@ func SetupForumRouter(rdb *redis.Client, r *gin.Engine, forumProxy *httputil.Rev
 	api := r.Group("/api/v1/forum")
 
 	// 无需验证的路由
-	api.GET("/file/*filename", func(c *gin.Context) {
-		filename := c.Param("filename")
-		c.Request.URL.Path = "/forum/file" + filename
-		forumProxy.ServeHTTP(c.Writer, c.Request)
-	})
+	api.GET("/file/*filename", proxyTo(forumProxy, "/api/v1/forum", "/forum"))
 
-	// 需要验证的路由
-	api.Use(middleware.AuthMiddleware(rdb))
-	api.Any("/*path", func(c *gin.Context) {
-		forumProxy.ServeHTTP(c.Writer, c.Request)
-	})
+	auth := r.Group("/api/v1/forum")
+	auth.Use(middleware.AuthMiddleware(rdb))
+	auth.POST("/upload", proxyTo(forumProxy, "", "/forum/upload"))
+	auth.POST("/posts", proxyTo(forumProxy, "", "/forum/posts"))
+	auth.GET("/posts", proxyTo(forumProxy, "", "/forum/posts"))
+	auth.Any("/posts/*path", proxyTo(forumProxy, "/api/v1/forum", "/forum"))
+	auth.POST("/replies", proxyTo(forumProxy, "", "/forum/replies"))
+	auth.Any("/replies/*path", proxyTo(forumProxy, "/api/v1/forum", "/forum"))
+	auth.POST("/search", proxyTo(forumProxy, "", "/forum/search"))
 
 	return r
 }
 
-// 论坛服务路由
-func proxyTo(proxy *httputil.ReverseProxy, targetPath string) gin.HandlerFunc {
+func proxyTo(proxy *httputil.ReverseProxy, sourcePrefix string, target string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Request.URL.Path = targetPath
+		if sourcePrefix == "" {
+			c.Request.URL.Path = target
+		} else {
+			c.Request.URL.Path = target + strings.TrimPrefix(c.Request.URL.Path, sourcePrefix)
+		}
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }
