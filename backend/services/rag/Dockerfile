@@ -3,10 +3,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DEFAULT_TIMEOUT=120
 
 COPY services/rag/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir --retries 20 -r /app/requirements.txt
 
 COPY services/rag/main.py /app/main.py
 COPY services/rag/config.yaml /app/config.yaml

@@ -7,6 +7,9 @@ gateway:
     capacity: 100
   concurrency:
     max_inflight: 1000
+  proxy:
+    default_timeout_seconds: 5
+    chat_timeout_seconds: 120
 
 redis:
   addr: redis:6379

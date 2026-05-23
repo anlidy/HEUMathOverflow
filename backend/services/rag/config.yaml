@@ -68,6 +68,8 @@ chat:
   max_tool_round_trips: 3
   tool_post_limit: 3
   tool_global_chunk_limit: 12
+  preserve_recent_messages: 5
+  compress_after_chars: 12000
   context:
     system_prompt: >-
       You are a MathOverflow AI assistant. Answer with the conversation context first.

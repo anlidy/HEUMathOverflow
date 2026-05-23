@@ -68,6 +68,9 @@ func main() {
 	if err := pg.AutoMigrate(&model.UserSnapshot{}, &common.OutboxMessage{}); err != nil {
 		panic(err)
 	}
+	if err := pg.AutoMigrate(&model.ChatSession{}, &model.ChatMessage{}); err != nil {
+		panic(err)
+	}
 	// 添加triggers
 	InitTriggers(pg)
 
@@ -88,6 +91,7 @@ func main() {
 	replyRepo := repository.NewReplyRepository(pg, rdb)
 	userSnapshotRepo := repository.NewUserSnapshotRepository(pg)
 	tokenRepo := repository.NewClientTokenRepository(rdb)
+	chatRepo := repository.NewChatRepository(pg)
 	postCache := cache.NewPostCache(rdb, cache.PostCacheConfig{})
 	commentCache := cache.NewCommentCache(rdb, cache.CommentCacheConfig{})
 
@@ -95,12 +99,14 @@ func main() {
 	postServ := service.NewPostService(cfg, rabbit, postRepo, replyRepo, fileRepo, userSnapshotRepo, tokenRepo, postCache)
 	replyServ := service.NewReplyService(cfg, postRepo, replyRepo, fileRepo, userSnapshotRepo, tokenRepo, commentCache, postCache, postCache)
 	searchServ := service.NewSearchService(cfg, es, postRepo, userSnapshotRepo)
+	chatServ := service.NewChatService(cfg, chatRepo)
 
 	forumHandler := handler.NewForumHandler(forumServ)
 	postHandler := handler.NewPostHandler(postServ)
 	replyHandler := handler.NewReplyHandler(replyServ)
 	searchHandler := handler.NewSearchHandler(searchServ)
 	tokenHandler := handler.NewTokenHandler(tokenRepo)
+	chatHandler := handler.NewChatHandler(chatServ)
 
 	// 初始化worker
 	postWorker := worker.NewPostWorker(pg, rdb, rabbit)
@@ -162,7 +168,7 @@ func main() {
 	})
 
 	eg.Go(func() error {
-		r := router.SetupRouter(rdb, forumHandler, postHandler, replyHandler, searchHandler, tokenHandler)
+		r := router.SetupRouter(rdb, forumHandler, postHandler, replyHandler, searchHandler, tokenHandler, chatHandler)
 		srv := &http.Server{
 			Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 			Handler: r, // Gin 实现了 http.Handler 接口

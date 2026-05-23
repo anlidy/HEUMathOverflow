@@ -30,7 +30,7 @@ func SetupUserRouter(rdb *redis.Client, r *gin.Engine, userProxy *httputil.Rever
 }
 
 // 论坛服务路由
-func SetupForumRouter(rdb *redis.Client, r *gin.Engine, forumProxy *httputil.ReverseProxy) *gin.Engine {
+func SetupForumRouter(rdb *redis.Client, r *gin.Engine, forumProxy *httputil.ReverseProxy, forumChatProxy *httputil.ReverseProxy) *gin.Engine {
 	api := r.Group("/api/v1/forum")
 
 	// 无需验证的路由
@@ -45,6 +45,7 @@ func SetupForumRouter(rdb *redis.Client, r *gin.Engine, forumProxy *httputil.Rev
 	auth.POST("/replies", proxyTo(forumProxy, "", "/forum/replies"))
 	auth.Any("/replies/*path", proxyTo(forumProxy, "/api/v1/forum", "/forum"))
 	auth.POST("/search", proxyTo(forumProxy, "", "/forum/search"))
+	auth.Any("/chat/*path", proxyTo(forumChatProxy, "/api/v1/forum", "/forum"))
 
 	return r
 }

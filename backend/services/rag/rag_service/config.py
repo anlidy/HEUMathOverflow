@@ -103,6 +103,8 @@ class ChatConfig(BaseModel):
     max_tool_round_trips: int = Field(default=3, ge=1)
     tool_post_limit: int = Field(default=3, ge=1)
     tool_global_chunk_limit: int = Field(default=12, ge=1)
+    preserve_recent_messages: int = Field(default=5, ge=1)
+    compress_after_chars: int = Field(default=12000, ge=1)
     context: ContextConfig = Field(default_factory=ContextConfig)
 
 

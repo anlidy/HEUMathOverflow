@@ -42,3 +42,7 @@ elastic:
   addresses:
     - http://elasticsearch:9200
   index: forum_posts
+
+rag:
+  base_url: http://rag-service:9091
+  timeout_seconds: 60

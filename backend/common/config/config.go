@@ -66,9 +66,20 @@ type GatewayConcurrencyConfig struct {
 	MaxInflight int `mapstructure:"max_inflight"`
 }
 
+type GatewayProxyConfig struct {
+	DefaultTimeoutSeconds int `mapstructure:"default_timeout_seconds"`
+	ChatTimeoutSeconds    int `mapstructure:"chat_timeout_seconds"`
+}
+
 type GatewayConfig struct {
 	RateLimit   GatewayRateLimitConfig `mapstructure:"rate_limit"`
 	Concurrency GatewayConcurrencyConfig
+	Proxy       GatewayProxyConfig
+}
+
+type RagConfig struct {
+	BaseURL        string `mapstructure:"base_url"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
 }
 
 type Config struct {
@@ -84,6 +95,7 @@ type Config struct {
 	Elastic  ElasticsearchConfig
 	GRPC     GRPCConfig
 	Gateway  GatewayConfig
+	Rag      RagConfig
 }
 
 // 常量定义

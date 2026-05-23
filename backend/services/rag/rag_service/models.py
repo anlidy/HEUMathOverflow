@@ -65,11 +65,20 @@ class SearchResponse(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
+    message_id: int | None = None
+    role: Literal["system", "user", "assistant", "tool"]
+    type: Literal["text", "tool_use", "tool_result", "event"] = "text"
     content: str
+    tool_name: str | None = None
+    tool_call_id: str | None = None
+    tool_args: dict[str, Any] | None = None
+    tool_result: dict[str, Any] | None = None
 
 
 class ChatRequest(BaseModel):
+    session_id: str | None = None
+    summary: str | None = None
+    summary_up_to_message_id: int | None = None
     messages: list[ChatMessage]
 
     @model_validator(mode="after")
@@ -81,10 +90,26 @@ class ChatRequest(BaseModel):
         return self
 
 
+class ToolTrace(BaseModel):
+    tool_name: str
+    tool_call_id: str
+    tool_args: dict[str, Any] = Field(default_factory=dict)
+    tool_result: dict[str, Any] = Field(default_factory=dict)
+    content: str
+    status: Literal["ok", "error"] = "ok"
+
+
+class SummaryUpdate(BaseModel):
+    summary: str
+    up_to_message_id: int
+
+
 class ChatResponse(BaseModel):
     answer: str
     used_tools: list[str] = Field(default_factory=list)
     retrieved_posts: list[SearchPostView] = Field(default_factory=list)
+    tool_traces: list[ToolTrace] = Field(default_factory=list)
+    summary_update: SummaryUpdate | None = None
 
 
 @dataclass(slots=True)

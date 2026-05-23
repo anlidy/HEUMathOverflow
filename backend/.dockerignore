@@ -23,6 +23,18 @@
 # Large generated service binaries are not needed for rag Python images
 services/*/bin
 
+# Re-include Go service binaries required by the production Dockerfile
+!services/audit/bin/
+!services/audit/bin/*
+!services/es/bin/
+!services/es/bin/*
+!services/forum/bin/
+!services/forum/bin/*
+!services/gateway/bin/
+!services/gateway/bin/*
+!services/user/bin/
+!services/user/bin/*
+
 # Default: exclude all local model weights from generic contexts
 services/rag/model_server/models
 

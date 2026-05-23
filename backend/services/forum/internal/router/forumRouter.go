@@ -13,7 +13,8 @@ func SetupRouter(rdb *redis.Client,
 	postHandler handler.PostHandler,
 	replyHandler handler.ReplyHandler,
 	searchHandler handler.SearchHandler,
-	tokenHandler handler.TokenHandler) *gin.Engine {
+	tokenHandler handler.TokenHandler,
+	chatHandler handler.ChatHandler) *gin.Engine {
 
 	r := gin.Default()
 	r.Use(
@@ -59,5 +60,11 @@ func SetupRouter(rdb *redis.Client,
 	// 搜索
 	search := authForum.Group("/search")
 	search.POST("", searchHandler.SearchPosts) // 搜索帖子:tags和关键词共用
+
+	chat := authForum.Group("/chat")
+	chat.POST("/sessions", chatHandler.CreateSession)
+	chat.GET("/sessions", chatHandler.ListSessions)
+	chat.GET("/sessions/:sessionID/messages", chatHandler.ListMessages)
+	chat.POST("/sessions/:sessionID/messages", chatHandler.SendMessage)
 	return r
 }

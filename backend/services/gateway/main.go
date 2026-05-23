@@ -16,10 +16,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func newReverseProxy(target string) *httputil.ReverseProxy {
+func newReverseProxy(target string, responseHeaderTimeout time.Duration) *httputil.ReverseProxy {
 	targetURL, err := url.Parse(target)
 	if err != nil {
 		log.Fatalf("invalid target url %s: %v", target, err)
+	}
+	if responseHeaderTimeout <= 0 {
+		responseHeaderTimeout = 5 * time.Second
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
@@ -37,7 +40,7 @@ func newReverseProxy(target string) *httputil.ReverseProxy {
 
 	proxy.Transport = &http.Transport{
 		Proxy:                 nil,
-		ResponseHeaderTimeout: 5 * time.Second,
+		ResponseHeaderTimeout: responseHeaderTimeout,
 	}
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
@@ -68,9 +71,13 @@ func main() {
 		panic(err)
 	}
 
+	defaultProxyTimeout := time.Duration(cfg.Gateway.Proxy.DefaultTimeoutSeconds) * time.Second
+	chatProxyTimeout := time.Duration(cfg.Gateway.Proxy.ChatTimeoutSeconds) * time.Second
+
 	// 创建两个下游服务代理
-	userProxy := newReverseProxy("http://user-service:8081")
-	forumProxy := newReverseProxy("http://forum-service:8082")
+	userProxy := newReverseProxy("http://user-service:8081", defaultProxyTimeout)
+	forumProxy := newReverseProxy("http://forum-service:8082", defaultProxyTimeout)
+	forumChatProxy := newReverseProxy("http://forum-service:8082", chatProxyTimeout)
 
 	cors := middleware.CorsMiddleware([]string{"http://localhost:5173", "https://math-overflow.edu"})
 
@@ -79,7 +86,7 @@ func main() {
 	r.Use(middleware.GlobalConcurrencyMiddleware(cfg.Gateway.Concurrency.MaxInflight))
 	r.Use(middleware.RedisIPRateLimitMiddleware(rdb, "/", cfg.Gateway.RateLimit.QPS, cfg.Gateway.RateLimit.Capacity))
 	r = SetupUserRouter(rdb, r, userProxy)
-	r = SetupForumRouter(rdb, r, forumProxy)
+	r = SetupForumRouter(rdb, r, forumProxy, forumChatProxy)
 
 	port := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("gateway listening on %s", port)
