@@ -12,7 +12,10 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.16",
@@ -39,7 +42,9 @@
     "@vicons/ionicons5": "^0.13.0",
     "@vicons/utils": "^0.1.4",
     "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/test-utils": "^2.4.11",
     "@vue/tsconfig": "^0.8.1",
+    "happy-dom": "^20.10.3",
     "naive-ui": "^2.43.1",
     "npm-run-all2": "^8.0.4",
     "prettier": "3.6.2",
@@ -48,6 +53,7 @@
     "vfonts": "^0.0.3",
     "vite": "^7.1.11",
     "vite-plugin-vue-devtools": "^8.0.3",
+    "vitest": "^4.1.8",
     "vue-tsc": "^3.1.1"
   }
 }
